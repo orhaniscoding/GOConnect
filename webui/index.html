@@ -11,98 +11,122 @@
 <body>
   <div class="layout">
     <aside class="sidebar">
-      <div class="brand" id="app-title">GOConnect</div>
+      <div class="brand" id="app-title" data-i18n="app.title">GOConnect</div>
       <nav>
-        <a href="#" class="navlink active" data-section="dashboard">Dashboard</a>
-        <a href="#" class="navlink" data-section="networks">Networks</a>
-        <a href="#" class="navlink" data-section="peers">Peers</a>
-        <a href="#" class="navlink" data-section="settings">Settings</a>
-        <a href="#" class="navlink" data-section="logs">Logs & Diagnose</a>
-        <a href="#" class="navlink" data-section="about">About</a>
+        <a href="#" class="navlink active" data-section="dashboard" data-i18n="nav.dashboard">Dashboard</a>
+        <a href="#" class="navlink" data-section="networks" data-i18n="nav.networks">Networks</a>
+        <a href="#" class="navlink" data-section="peers" data-i18n="nav.peers">Peers</a>
+        <a href="#" class="navlink" data-section="settings" data-i18n="nav.settings">Settings</a>
+        <a href="#" class="navlink" data-section="logs" data-i18n="nav.logs">Logs & Diagnose</a>
+        <a href="#" class="navlink" data-section="about" data-i18n="nav.about">About</a>
       </nav>
     </aside>
     <main class="content">
       <header class="content-header">
-        <h2 id="section-title">Dashboard</h2>
+        <h2 id="section-title" data-i18n="nav.dashboard">Dashboard</h2>
       </header>
 
       <section id="section-dashboard" class="section active">
         <div class="cards">
-          <div class="card"><h3>Status</h3>
+          <div class="card">
+            <h3 data-i18n="dashboard.status">Status</h3>
             <div class="row tight">
-              <div>Service</div><div><span id="svc-state" class="badge"></span></div>
+              <div data-i18n="dashboard.service">Service</div><div><span id="svc-state" class="badge"></span></div>
             </div>
             <div class="row tight">
-              <div>TUN</div><div><span id="tun-state" class="badge"></span></div>
+              <div data-i18n="dashboard.tun">Tunnel</div><div><span id="tun-state" class="badge"></span></div>
             </div>
             <div class="row tight">
-              <div>Controller</div><div><span id="ctrl-state" class="badge"></span></div>
+              <div data-i18n="dashboard.controller">Controller</div><div><span id="ctrl-state" class="badge"></span></div>
+            </div>
+            <div class="row tight">
+              <div data-i18n="dashboard.publicEndpoint">Public Endpoint</div><div><span id="public-endpoint" class="badge"></span></div>
+            </div>
+            <div class="row tight">
+              <div data-i18n="dashboard.tunSelf">Tunnel Self-Test</div><div><span id="tun-self" class="badge"></span></div>
             </div>
             <div class="row">
-              <button id="btn-start">Start</button>
-              <button id="btn-stop">Stop</button>
-              <button id="btn-restart">Restart</button>
+              <button id="btn-start" data-i18n="actions.start">Start</button>
+              <button id="btn-stop" data-i18n="actions.stop">Stop</button>
+              <button id="btn-restart" data-i18n="actions.restart">Restart</button>
             </div>
           </div>
-          <div class="card"><h3>Quick Actions</h3>
+          <div class="card">
+            <h3 data-i18n="dashboard.quickActions">Quick Actions</h3>
             <div class="row">
-              <button id="btn-diag">Run Diagnose</button>
-              <button id="btn-exit">Shutdown Agent</button>
+              <button id="btn-diag" data-i18n="actions.runDiag">Run Diagnose</button>
+              <button id="btn-exit" data-i18n="actions.shutdown">Shutdown Agent</button>
             </div>
           </div>
         </div>
       </section>
 
       <section id="section-networks" class="section">
-        <h3>Networks</h3>
-        <p>Manage network memberships (stub).</p>
-        <ul id="networks-list" class="list"></ul>
+        <h3 data-i18n="nav.networks">Networks</h3>
+        <p data-i18n="networks.description">Manage network memberships (stub).</p>
+        <ul id="networks-list" class="list networks"></ul>
+        <form id="network-form" class="form-grid networks-form">
+          <h4 data-i18n="networks.addTitle">Join Network</h4>
+          <label><span data-i18n="networks.id">Network ID</span>
+            <input type="text" id="network-id" required data-i18n-placeholder="networks.id">
+          </label>
+          <label><span data-i18n="networks.name">Name</span>
+            <input type="text" id="network-name" data-i18n-placeholder="networks.name">
+          </label>
+          <label><span data-i18n="networks.descriptionLabel">Description</span>
+            <input type="text" id="network-description" data-i18n-placeholder="networks.descriptionLabel">
+          </label>
+          <div class="row">
+            <button type="submit" data-i18n="networks.join">Join</button>
+          </div>
+        </form>
       </section>
 
       <section id="section-peers" class="section">
-        <h3>Peers</h3>
+        <h3 data-i18n="nav.peers">Peers</h3>
         <table class="table" id="peers-table">
-          <thead><tr><th>Peer</th><th>Mode</th><th>RTT</th><th>Last Seen</th></tr></thead>
+          <thead><tr><th data-i18n="peers.headerPeer">Peer</th><th data-i18n="peers.headerMode">Mode</th><th data-i18n="peers.headerRTT">RTT</th><th data-i18n="peers.headerSeen">Last Seen</th></tr></thead>
           <tbody></tbody>
         </table>
       </section>
 
       <section id="section-settings" class="section">
-        <h3>General</h3>
+        <h3 data-i18n="settings.general">General</h3>
         <form id="settings-form" class="form-grid">
-          <label>Port <input type="number" id="port"></label>
-          <label>MTU <input type="number" id="mtu"></label>
-          <label>Log Level <input type="text" id="log_level" placeholder="info|debug"></label>
-          <label>Language
+          <label><span data-i18n="settings.port">Port</span> <input type="number" id="port"></label>
+          <label><span data-i18n="settings.mtu">MTU</span> <input type="number" id="mtu"></label>
+          <label><span data-i18n="settings.logLevel">Log Level</span> <input type="text" id="log_level" data-i18n-placeholder="settings.logLevel"></label>
+          <label><span data-i18n="settings.language">Language</span>
             <select id="language">
-              <option value="en">English</option>
-              <option value="tr">TÃ¼rkÃ§e</option>
+              <option value="en" data-i18n-option="language.en">English</option>
+              <option value="tr" data-i18n-option="language.tr">Türkçe</option>
             </select>
           </label>
-          <label>Autostart <input type="checkbox" id="autostart"></label>
+          <label class="checkbox"><input type="checkbox" id="autostart"> <span data-i18n="settings.autostart">Autostart</span></label>
 
-          <h3>Controller & Relays</h3>
-          <label>Controller URL <input type="text" id="controller_url" placeholder="https://controller.example"></label>
-          <label>Relay URLs <input type="text" id="relay_urls" placeholder="url1,url2"></label>
+          <h3 data-i18n="settings.controller">Controller & Relays</h3>
+          <label><span data-i18n="settings.controllerURL">Controller URL</span> <input type="text" id="controller_url" data-i18n-placeholder="settings.controllerPlaceholder"></label>
+          <label><span data-i18n="settings.relayURLs">Relay URLs</span> <input type="text" id="relay_urls" data-i18n-placeholder="settings.relayPlaceholder"></label>
 
-          <h3>Transport</h3>
-          <label>UDP Port <input type="number" id="udp_port"></label>
-          <label>Peers <input type="text" id="peers" placeholder="host:port,host:port"></label>
+          <h3 data-i18n="settings.transport">Transport</h3>
+          <label><span data-i18n="settings.udpPort">UDP Port</span> <input type="number" id="udp_port"></label>
+          <label><span data-i18n="settings.peers">Peers</span> <input type="text" id="peers" data-i18n-placeholder="settings.peersPlaceholder"></label>
+          <label><span data-i18n="settings.stunServers">STUN Servers</span> <input type="text" id="stun_servers" data-i18n-placeholder="settings.stunPlaceholder"></label>
 
           <div class="row">
-            <button type="submit">Save Settings</button>
+            <button type="submit" data-i18n="settings.save">Save Settings</button>
           </div>
         </form>
       </section>
 
       <section id="section-logs" class="section">
-        <h3>Live Logs</h3>
+        <h3 data-i18n="logs.title">Live Logs</h3>
         <pre id="log-stream" class="log"></pre>
       </section>
 
       <section id="section-about" class="section">
-        <h3>About</h3>
-        <p>GOConnect v1.x â€” Local overlay agent. Networking features are being enabled step-by-step.</p>
+        <h3 data-i18n="nav.about">About</h3>
+        <p data-i18n="about.text">GOConnect v1.x — Local overlay agent. Networking features are being enabled step-by-step.</p>
       </section>
 
     </main>

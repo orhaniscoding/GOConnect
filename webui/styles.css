@@ -28,3 +28,15 @@ button:hover{background:#2b3b57}
 .table{width:100%;border-collapse:collapse;border:1px solid #252b39}
 .table th,.table td{border-top:1px solid #252b39;padding:8px;text-align:left;font-size:13px}
 .list{padding-left:16px}
+.badge.info{background:#1b2130;border-color:#344361}
+.badge.error{background:#3a1115;border-color:#8e2a32}
+form label.checkbox{flex-direction:row;align-items:center;gap:8px}
+
+.networks{list-style:none;padding-left:0}
+.network-item{display:flex;justify-content:space-between;align-items:center;margin:6px 0;padding:6px 8px;border:1px solid #252b39;border-radius:6px}
+.network-info{display:flex;flex-direction:column;gap:4px}
+.network-desc{font-size:12px;color:#9aa4b5}
+.network-actions{display:flex;gap:8px;align-items:center}
+.networks-form h4{margin:0 0 6px 0}
+.networks-form .row{grid-column:1/-1}
+.network-item.empty{border-style:dashed;justify-content:flex-start}

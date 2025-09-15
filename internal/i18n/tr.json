@@ -1,16 +1,22 @@
 {
   "app.title": "GOConnect",
-  "status.running": "Ã‡alÄ±ÅŸÄ±yor",
+  "status.running": "Çalışıyor",
   "status.stopped": "Durduruldu",
-  "status.connected": "BaÄŸlÄ±",
-  "status.disconnected": "BaÄŸlÄ± deÄŸil",
-  "menu.start": "BaÅŸlat",
+  "status.connected": "Bağlı",
+  "status.disconnected": "Bağlı değil",
+  "status.up": "Aktif",
+  "status.down": "Kapalı",
+  "status.unknown": "Bilinmiyor",
+  "menu.start": "Başlat",
   "menu.stop": "Durdur",
-  "menu.networks": "AÄŸlarâ€¦",
-  "menu.diagnose": "TeÅŸhis",
-  "menu.openLogs": "GÃ¼nlÃ¼kleri AÃ§",
-  "menu.openPanel": "Kontrol Panelini AÃ§",
+  "menu.restart": "Yeniden Başlat",
+  "menu.networks": "Ağlar",
+  "menu.diagnose": "Teşhis",
+  "menu.openLogs": "Günlükleri Aç",
+  "menu.openPanel": "Kontrol Panelini Aç",
   "menu.language": "Dil",
-  "menu.exit": "Ã‡Ä±kÄ±ÅŸ"
+  "menu.language.english": "Dil: İngilizce",
+  "menu.language.turkish": "Dil: Türkçe",
+  "menu.exit": "Çıkış",
+  "menu.shutdown": "Aracıyı Kapat"
 }
-
