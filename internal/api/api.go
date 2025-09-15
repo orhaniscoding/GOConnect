@@ -180,6 +180,9 @@ func (a *API) handleServiceRestart(w http.ResponseWriter, r *http.Request) (int,
 
 func (a *API) handleNetworks(w http.ResponseWriter, r *http.Request) (int, any) {
 	_, _, _, nets, _, _ := a.state.Snapshot()
+	if nets == nil {
+		nets = []core.Network{}
+	}
 	return 200, map[string]any{"networks": nets}
 }
 

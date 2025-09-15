@@ -60,15 +60,19 @@ async function loadI18n() {
 }
 
 async function loadStatus() {
-  const res = await fetch("/api/status", { credentials: "same-origin" });
-  CSRF = getCookie("goc_csrf") || CSRF;
-  const data = await res.json();
-  window._goc_lang = data.i18n;
-  setBadge("svc-state", data.service_state);
-  setBadge("tun-state", data.tun_state);
-  setBadge("ctrl-state", data.controller);
-  updatePublicEndpoint(data.public_endpoint);
-  updateTunSelf(data.tun_error);
+  try {
+    const res = await fetch("/api/status", { credentials: "same-origin" });
+    CSRF = getCookie("goc_csrf") || CSRF;
+    const data = await res.json();
+    window._goc_lang = data.i18n;
+    setBadge("svc-state", data.service_state);
+    setBadge("tun-state", data.tun_state);
+    setBadge("ctrl-state", data.controller);
+    updatePublicEndpoint(data.public_endpoint);
+    updateTunSelf(data.tun_error);
+  } catch (err) {
+    console.error("status", err);
+  }
 }
 
 function setBadge(id, state) {
@@ -105,64 +109,69 @@ function updateTunSelf(err) {
 }
 
 async function loadNetworks() {
-  const res = await fetch("/api/networks");
-  const data = await res.json();
-  const ul = document.getElementById("networks-list");
-  ul.innerHTML = "";
-  if (!data.networks || data.networks.length === 0) {
-    const li = document.createElement("li");
-    li.className = "network-item empty";
-    li.textContent = t("dashboard.none");
-    ul.appendChild(li);
-    return;
+  try {
+    const res = await fetch("/api/networks");
+    const data = await res.json();
+    const networks = Array.isArray(data.networks) ? data.networks : [];
+    const ul = document.getElementById("networks-list");
+    ul.innerHTML = "";
+    if (networks.length === 0) {
+      const li = document.createElement("li");
+      li.className = "network-item empty";
+      li.textContent = t("dashboard.none");
+      ul.appendChild(li);
+      return;
+    }
+    networks.forEach((net) => {
+      const id = net.ID || net.id || "";
+      const name = net.Name || net.name || id;
+      const description = net.Description || net.description || "";
+      const address = net.Address || net.address || "";
+      const joined = Boolean(net.Joined || net.joined);
+
+      const li = document.createElement("li");
+      li.className = "network-item";
+
+      const info = document.createElement("div");
+      info.className = "network-info";
+      const textParts = [name, `(${id})`];
+      if (address) {
+        textParts.push(address);
+      }
+      info.textContent = textParts.join(" ");
+      if (description) {
+        const desc = document.createElement("div");
+        desc.className = "network-desc";
+        desc.textContent = description;
+        info.appendChild(desc);
+      }
+
+      const actions = document.createElement("div");
+      actions.className = "network-actions";
+      const status = document.createElement("span");
+      status.className = joined ? "badge running" : "badge stopped";
+      status.textContent = joined ? t("status.connected") : t("status.disconnected");
+      const btn = document.createElement("button");
+      btn.type = "button";
+      if (joined) {
+        btn.textContent = t("networks.leave");
+        btn.addEventListener("click", async () => {
+          await leaveNetwork(id);
+        });
+      } else {
+        btn.textContent = t("networks.join");
+        btn.addEventListener("click", async () => {
+          await joinNetwork({ id, name, description });
+        });
+      }
+      actions.append(status, btn);
+
+      li.append(info, actions);
+      ul.appendChild(li);
+    });
+  } catch (err) {
+    console.error("networks", err);
   }
-  data.networks.forEach((net) => {
-    const id = net.ID || net.id || "";
-    const name = net.Name || net.name || id;
-    const description = net.Description || net.description || "";
-    const address = net.Address || net.address || "";
-    const joined = Boolean(net.Joined || net.joined);
-
-    const li = document.createElement("li");
-    li.className = "network-item";
-
-    const info = document.createElement("div");
-    info.className = "network-info";
-    const textParts = [name, `(${id})`];
-    if (address) {
-      textParts.push(address);
-    }
-    info.textContent = textParts.join(" ");
-    if (description) {
-      const desc = document.createElement("div");
-      desc.className = "network-desc";
-      desc.textContent = description;
-      info.appendChild(desc);
-    }
-
-    const actions = document.createElement("div");
-    actions.className = "network-actions";
-    const status = document.createElement("span");
-    status.className = joined ? "badge running" : "badge stopped";
-    status.textContent = joined ? t("status.connected") : t("status.disconnected");
-    const btn = document.createElement("button");
-    btn.type = "button";
-    if (joined) {
-      btn.textContent = t("networks.leave");
-      btn.addEventListener("click", async () => {
-        await leaveNetwork(id);
-      });
-    } else {
-      btn.textContent = t("networks.join");
-      btn.addEventListener("click", async () => {
-        await joinNetwork({ id, name, description });
-      });
-    }
-    actions.append(status, btn);
-
-    li.append(info, actions);
-    ul.appendChild(li);
-  });
 }
 
 async function joinNetwork(payload) {
@@ -188,17 +197,22 @@ async function leaveNetwork(id) {
 }
 
 async function loadPeers() {
-  const res = await fetch("/api/peers");
-  const data = await res.json();
-  const tbody = document.querySelector("#peers-table tbody");
-  if (!tbody) return;
-  tbody.innerHTML = "";
-  data.peers.forEach((p) => {
-    const tr = document.createElement("tr");
-    const modeKey = p.P2P ? "mode.p2p" : p.Relay ? "mode.relay" : "mode.none";
-    tr.innerHTML = `<td>${p.ID || p.Address || ""}</td><td>${t(modeKey)}</td><td>${p.RTTms || 0} ms</td><td>${formatTime(p.LastSeen)}</td>`;
-    tbody.appendChild(tr);
-  });
+  try {
+    const res = await fetch("/api/peers");
+    const data = await res.json();
+    const peers = Array.isArray(data.peers) ? data.peers : [];
+    const tbody = document.querySelector("#peers-table tbody");
+    if (!tbody) return;
+    tbody.innerHTML = "";
+    peers.forEach((p) => {
+      const tr = document.createElement("tr");
+      const modeKey = p.P2P ? "mode.p2p" : p.Relay ? "mode.relay" : "mode.none";
+      tr.innerHTML = `<td>${p.ID || p.Address || ""}</td><td>${t(modeKey)}</td><td>${p.RTTms || 0} ms</td><td>${formatTime(p.LastSeen)}</td>`;
+      tbody.appendChild(tr);
+    });
+  } catch (err) {
+    console.error("peers", err);
+  }
 }
 
 function formatTime(v) {
@@ -211,18 +225,22 @@ function formatTime(v) {
 }
 
 async function loadSettings() {
-  const res = await fetch("/api/settings");
-  const s = await res.json();
-  document.getElementById("port").value = s.Port;
-  document.getElementById("mtu").value = s.MTU;
-  document.getElementById("log_level").value = s.LogLevel;
-  document.getElementById("language").value = s.Language || "en";
-  document.getElementById("autostart").checked = s.Autostart;
-  document.getElementById("controller_url").value = s.ControllerURL || "";
-  document.getElementById("relay_urls").value = (s.RelayURLs || []).join(",");
-  document.getElementById("udp_port").value = s.UDPPort || 45820;
-  document.getElementById("peers").value = (s.Peers || []).join(",");
-  document.getElementById("stun_servers").value = (s.StunServers || []).join(",");
+  try {
+    const res = await fetch("/api/settings");
+    const s = await res.json();
+    document.getElementById("port").value = s.Port;
+    document.getElementById("mtu").value = s.MTU;
+    document.getElementById("log_level").value = s.LogLevel;
+    document.getElementById("language").value = s.Language || "en";
+    document.getElementById("autostart").checked = s.Autostart;
+    document.getElementById("controller_url").value = s.ControllerURL || "";
+    document.getElementById("relay_urls").value = (s.RelayURLs || []).join(",");
+    document.getElementById("udp_port").value = s.UDPPort || 45820;
+    document.getElementById("peers").value = (s.Peers || []).join(",");
+    document.getElementById("stun_servers").value = (s.StunServers || []).join(",");
+  } catch (err) {
+    console.error("settings load", err);
+  }
 }
 
 function bindActions() {
@@ -300,7 +318,7 @@ function bindActions() {
           .map((s) => s.trim())
           .filter(Boolean),
       };
-            try {
+      try {
         await put("/api/settings", body);
         await loadI18n();
         await loadStatus();
@@ -334,11 +352,7 @@ async function post(path) {
 }
 
 async function postJSON(path, body) {
-  const res = await fetch(path, {
-    method: "POST",
-    headers: { "X-CSRF-Token": CSRF, "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  const res = await fetch(path, {\n    method: "POST",\n    credentials: "same-origin",\n    headers: { "X-CSRF-Token": CSRF, "Content-Type": "application/json" },\n    body: JSON.stringify(body),\n  });
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`${res.status} ${res.statusText}${text ? `: ${text}` : ""}`);
@@ -347,11 +361,7 @@ async function postJSON(path, body) {
 }
 
 async function put(path, body) {
-  const res = await fetch(path, {
-    method: "PUT",
-    headers: { "X-CSRF-Token": CSRF, "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  const res = await fetch(path, {\n    method: "PUT",\n    credentials: "same-origin",\n    headers: { "X-CSRF-Token": CSRF, "Content-Type": "application/json" },\n    body: JSON.stringify(body),\n  });
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`${res.status} ${res.statusText}${text ? `: ${text}` : ""}`);
@@ -375,13 +385,4 @@ function getCookie(name) {
 }
 
 document.addEventListener("DOMContentLoaded", init);
-
-
-
-
-
-
-
-
-
 
