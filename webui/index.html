@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GOConnect</title>
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="brand" id="app-title">GOConnect</div>
+      <nav>
+        <a href="#" class="navlink active" data-section="dashboard">Dashboard</a>
+        <a href="#" class="navlink" data-section="networks">Networks</a>
+        <a href="#" class="navlink" data-section="peers">Peers</a>
+        <a href="#" class="navlink" data-section="settings">Settings</a>
+        <a href="#" class="navlink" data-section="logs">Logs & Diagnose</a>
+        <a href="#" class="navlink" data-section="about">About</a>
+      </nav>
+    </aside>
+    <main class="content">
+      <header class="content-header">
+        <h2 id="section-title">Dashboard</h2>
+      </header>
+
+      <section id="section-dashboard" class="section active">
+        <div class="cards">
+          <div class="card"><h3>Status</h3>
+            <div class="row tight">
+              <div>Service</div><div><span id="svc-state" class="badge"></span></div>
+            </div>
+            <div class="row tight">
+              <div>TUN</div><div><span id="tun-state" class="badge"></span></div>
+            </div>
+            <div class="row tight">
+              <div>Controller</div><div><span id="ctrl-state" class="badge"></span></div>
+            </div>
+            <div class="row">
+              <button id="btn-start">Start</button>
+              <button id="btn-stop">Stop</button>
+              <button id="btn-restart">Restart</button>
+            </div>
+          </div>
+          <div class="card"><h3>Quick Actions</h3>
+            <div class="row">
+              <button id="btn-diag">Run Diagnose</button>
+              <button id="btn-exit">Shutdown Agent</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="section-networks" class="section">
+        <h3>Networks</h3>
+        <p>Manage network memberships (stub).</p>
+        <ul id="networks-list" class="list"></ul>
+      </section>
+
+      <section id="section-peers" class="section">
+        <h3>Peers</h3>
+        <table class="table" id="peers-table">
+          <thead><tr><th>Peer</th><th>Mode</th><th>RTT</th><th>Last Seen</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </section>
+
+      <section id="section-settings" class="section">
+        <h3>General</h3>
+        <form id="settings-form" class="form-grid">
+          <label>Port <input type="number" id="port"></label>
+          <label>MTU <input type="number" id="mtu"></label>
+          <label>Log Level <input type="text" id="log_level" placeholder="info|debug"></label>
+          <label>Language
+            <select id="language">
+              <option value="en">English</option>
+              <option value="tr">Türkçe</option>
+            </select>
+          </label>
+          <label>Autostart <input type="checkbox" id="autostart"></label>
+
+          <h3>Controller & Relays</h3>
+          <label>Controller URL <input type="text" id="controller_url" placeholder="https://controller.example"></label>
+          <label>Relay URLs <input type="text" id="relay_urls" placeholder="url1,url2"></label>
+
+          <h3>Transport</h3>
+          <label>UDP Port <input type="number" id="udp_port"></label>
+          <label>Peers <input type="text" id="peers" placeholder="host:port,host:port"></label>
+
+          <div class="row">
+            <button type="submit">Save Settings</button>
+          </div>
+        </form>
+      </section>
+
+      <section id="section-logs" class="section">
+        <h3>Live Logs</h3>
+        <pre id="log-stream" class="log"></pre>
+      </section>
+
+      <section id="section-about" class="section">
+        <h3>About</h3>
+        <p>GOConnect v1.x — Local overlay agent. Networking features are being enabled step-by-step.</p>
+      </section>
+
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "app.title": "GOConnect",
+  "status.running": "Çalışıyor",
+  "status.stopped": "Durduruldu",
+  "status.connected": "Bağlı",
+  "status.disconnected": "Bağlı değil",
+  "menu.start": "Başlat",
+  "menu.stop": "Durdur",
+  "menu.networks": "Ağlar…",
+  "menu.diagnose": "Teşhis",
+  "menu.openLogs": "Günlükleri Aç",
+  "menu.openPanel": "Kontrol Panelini Aç",
+  "menu.language": "Dil",
+  "menu.exit": "Çıkış"
+}
+

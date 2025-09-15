@@ -1,0 +1,16 @@
+{
+  "app.title": "GOConnect",
+  "status.running": "Running",
+  "status.stopped": "Stopped",
+  "status.connected": "Connected",
+  "status.disconnected": "Disconnected",
+  "menu.start": "Start",
+  "menu.stop": "Stop",
+  "menu.networks": "Networks…",
+  "menu.diagnose": "Diagnose",
+  "menu.openLogs": "Open Logs",
+  "menu.openPanel": "Open Control Panel",
+  "menu.language": "Language",
+  "menu.exit": "Exit"
+}
+

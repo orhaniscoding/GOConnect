@@ -1,0 +1,30 @@
+*{box-sizing:border-box}
+body{font-family:Segoe UI,Arial,sans-serif;margin:0;background:#0e1116;color:#e6e6e6}
+.layout{display:grid;grid-template-columns:240px 1fr;min-height:100vh}
+.sidebar{background:#141821;border-right:1px solid #1f2430;padding:16px;position:sticky;top:0;height:100vh}
+.brand{font-weight:600;margin-bottom:12px}
+.sidebar nav{display:flex;flex-direction:column;gap:6px}
+.navlink{display:block;padding:8px 10px;border-radius:6px;color:#e6e6e6;text-decoration:none;border:1px solid transparent}
+.navlink:hover{background:#1b2130;border-color:#273149}
+.navlink.active{background:#273149;border-color:#344361}
+.content{padding:16px}
+.content-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.section{display:none}
+.section.active{display:block}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:16px}
+.card{background:#171c26;border:1px solid #252b39;padding:12px;border-radius:8px}
+.card h3{margin:0 0 8px 0;font-size:14px;color:#cfd8e3}
+.badge{padding:2px 8px;border-radius:10px;border:1px solid #2d3342}
+.badge.running,.badge.up,.badge.connected{background:#10361b;border-color:#1f7a34}
+.badge.stopped,.badge.down,.badge.disconnected{background:#3a1115;border-color:#8e2a32}
+.row{display:flex;gap:8px;margin:8px 0;align-items:center}
+.row.tight{margin:4px 0;justify-content:space-between}
+.log{background:#0b0d12;border:1px solid #1f2430;border-radius:6px;padding:10px;height:280px;overflow:auto}
+.form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+form label{display:flex;flex-direction:column;gap:6px}
+input,select{background:#0b0d12;border:1px solid #1f2430;color:#e6e6e6;border-radius:6px;padding:8px}
+button{background:#263043;border:1px solid #33425b;color:#e6e6e6;border-radius:6px;padding:8px 12px;cursor:pointer}
+button:hover{background:#2b3b57}
+.table{width:100%;border-collapse:collapse;border:1px solid #252b39}
+.table th,.table td{border-top:1px solid #252b39;padding:8px;text-align:left;font-size:13px}
+.list{padding-left:16px}
