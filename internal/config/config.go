@@ -19,17 +19,18 @@ type Network struct {
 }
 
 type Config struct {
-	Port          int       `yaml:"port"`
-	MTU           int       `yaml:"mtu"`
-	LogLevel      string    `yaml:"log_level"`
-	Language      string    `yaml:"language"`
-	Autostart     bool      `yaml:"autostart"`
-	ControllerURL string    `yaml:"controller_url"`
-	RelayURLs     []string  `yaml:"relay_urls"`
-	UDPPort       int       `yaml:"udp_port"`
-	Peers         []string  `yaml:"peers"`
-	StunServers   []string  `yaml:"stun_servers"`
-	Networks      []Network `yaml:"networks"`
+	Port             int       `yaml:"port"`
+	MTU              int       `yaml:"mtu"`
+	LogLevel         string    `yaml:"log_level"`
+	Language         string    `yaml:"language"`
+	Autostart        bool      `yaml:"autostart"`
+	ControllerURL    string    `yaml:"controller_url"`
+	RelayURLs        []string  `yaml:"relay_urls"`
+	UDPPort          int       `yaml:"udp_port"`
+	Peers            []string  `yaml:"peers"`
+	StunServers      []string  `yaml:"stun_servers"`
+	TrustedPeerCerts []string  `yaml:"trusted_peer_certs"`
+	Networks         []Network `yaml:"networks"`
 }
 
 const (
@@ -40,23 +41,24 @@ const (
 
 func Default(language string) *Config {
 	return &Config{
-		Port:        DefaultPort,
-		MTU:         DefaultMTU,
-		LogLevel:    DefaultLogLevel,
-		Language:    language,
-		Autostart:   true,
-		RelayURLs:   []string{},
-		UDPPort:     45820,
-		Peers:       []string{},
-		StunServers: []string{"stun.l.google.com:19302"},
-		Networks:    []Network{},
+		Port:             DefaultPort,
+		MTU:              DefaultMTU,
+		LogLevel:         DefaultLogLevel,
+		Language:         language,
+		Autostart:        true,
+		RelayURLs:        []string{},
+		UDPPort:          45820,
+		Peers:            []string{},
+		StunServers:      []string{"stun.l.google.com:19302"},
+		TrustedPeerCerts: []string{},
+		Networks:         []Network{},
 	}
 }
 
 func ProgramDataBase() string {
 	pd := os.Getenv("ProgramData")
 	if pd == "" {
-		pd = `C:\ProgramData`
+		pd = `C:\\ProgramData`
 	}
 	return filepath.Join(pd, "GOConnect")
 }
@@ -113,6 +115,9 @@ func Load() (*Config, error) {
 	}
 	if cfg.LogLevel == "" {
 		cfg.LogLevel = DefaultLogLevel
+	}
+	if cfg.TrustedPeerCerts == nil {
+		cfg.TrustedPeerCerts = []string{}
 	}
 	return cfg, nil
 }

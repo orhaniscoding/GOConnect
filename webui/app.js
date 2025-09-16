@@ -86,8 +86,8 @@ async function loadI18n() {
 async function loadStatus() {
   try {
     const res = await fetch("/api/status", { credentials: "same-origin" });
-    CSRF = getCookie("goc_csrf") || CSRF;
     const data = await res.json();
+    CSRF = data.csrf_token || CSRF;
     const previousLang = window._goc_lang || "en";
     const nextLang = data.i18n || previousLang;
     const languageChanged = nextLang !== previousLang;
@@ -465,6 +465,7 @@ function getCookie(name) {
 }
 
 document.addEventListener("DOMContentLoaded", init);
+
 
 
 

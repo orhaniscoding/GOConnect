@@ -1,13 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -185,14 +185,17 @@ func apiWithCSRF(method, path, ctype string, body *strings.Reader) error {
 	if err != nil {
 		return err
 	}
-	csrf := extractCSRFFromSetCookie(resp.Header.Values("Set-Cookie"))
-	_ = resp.Body.Close()
-
+	defer resp.Body.Close()
+	var payload struct {
+		Token string `json:"csrf_token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return err
+	}
 	req, _ := http.NewRequest(method, "http://127.0.0.1:2537"+path, body)
 	req.Header.Set("Content-Type", ctype)
-	if csrf != "" {
-		req.Header.Set("X-CSRF-Token", csrf)
-		req.Header.Set("Cookie", fmt.Sprintf("goc_csrf=%s", csrf))
+	if payload.Token != "" {
+		req.Header.Set("X-CSRF-Token", payload.Token)
 	}
 	resp2, err := client.Do(req)
 	if err != nil {
@@ -203,15 +206,4 @@ func apiWithCSRF(method, path, ctype string, body *strings.Reader) error {
 		return fmt.Errorf("status: %s", resp2.Status)
 	}
 	return nil
-}
-
-var csrfRe = regexp.MustCompile(`goc_csrf=([^;\s]+)`)
-
-func extractCSRFFromSetCookie(cookies []string) string {
-	for _, c := range cookies {
-		if m := csrfRe.FindStringSubmatch(c); len(m) == 2 {
-			return m[1]
-		}
-	}
-	return ""
 }

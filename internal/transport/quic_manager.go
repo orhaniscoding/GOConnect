@@ -7,9 +7,14 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/binary"
+	"encoding/pem"
+	"errors"
 	"fmt"
 	"math/big"
 	"net"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -33,10 +38,10 @@ type Manager struct {
 	natUpdate       func(string)
 	ln              *quic.Listener
 	stopCh          chan struct{}
-	tlsOnce         sync.Once
-	tlsErr          error
-	tlsConfig       *tls.Config
+	identity        tls.Certificate
+	trustedPool     *x509.CertPool
 	clientTLSConfig *tls.Config
+	serverTLSConfig *tls.Config
 }
 
 const (
@@ -44,32 +49,38 @@ const (
 	dialMaxBackoff     = 30 * time.Second
 	maxDialFailures    = 20
 	tlsServerName      = "goconnect"
+	identityCertName   = "quic_identity_cert.pem"
+	identityKeyName    = "quic_identity_key.pem"
 )
 
-func NewManager(udpAddr string, stunServers []string) *Manager {
+func NewManager(udpAddr string, stunServers []string, secretsDir string, trustedPeerCerts []string) (*Manager, error) {
 	servers := append([]string(nil), stunServers...)
-	return &Manager{addr: udpAddr, stunServers: servers, peers: map[string]*PeerInfo{}}
-}
-
-func (m *Manager) ensureTLSConfig() error {
-	m.tlsOnce.Do(func() {
-		server, client, err := newTLSConfigs()
-		if err != nil {
-			m.tlsErr = err
-			return
-		}
-		m.tlsConfig = server
-		m.clientTLSConfig = client
-	})
-	return m.tlsErr
+	identity, err := loadOrCreateIdentity(secretsDir)
+	if err != nil {
+		return nil, err
+	}
+	pool, err := loadTrustedPool(secretsDir, trustedPeerCerts, identity)
+	if err != nil {
+		return nil, err
+	}
+	serverTLS, clientTLS, err := newTLSConfigs(identity, pool)
+	if err != nil {
+		return nil, err
+	}
+	return &Manager{
+		addr:            udpAddr,
+		stunServers:     servers,
+		peers:           map[string]*PeerInfo{},
+		identity:        identity,
+		trustedPool:     pool,
+		clientTLSConfig: clientTLS,
+		serverTLSConfig: serverTLS,
+	}, nil
 }
 
 func (m *Manager) Start(peers []string) error {
 	if m.ln != nil {
 		return nil
-	}
-	if err := m.ensureTLSConfig(); err != nil {
-		return err
 	}
 	udpAddr, err := net.ResolveUDPAddr("udp", m.addr)
 	if err != nil {
@@ -79,7 +90,7 @@ func (m *Manager) Start(peers []string) error {
 	if err != nil {
 		return err
 	}
-	ln, err := quic.Listen(conn, m.tlsConfig, &quic.Config{})
+	ln, err := quic.Listen(conn, m.serverTLSConfig, &quic.Config{})
 	if err != nil {
 		return err
 	}
@@ -391,15 +402,91 @@ func equalBytes(a, b []byte) bool {
 	return true
 }
 
-func newTLSConfigs() (*tls.Config, *tls.Config, error) {
+func newTLSConfigs(identity tls.Certificate, pool *x509.CertPool) (*tls.Config, *tls.Config, error) {
+	if len(identity.Certificate) == 0 {
+		return nil, nil, errors.New("missing identity certificate")
+	}
+	server := &tls.Config{
+		Certificates: []tls.Certificate{identity},
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+		ClientCAs:    pool,
+		MinVersion:   tls.VersionTLS13,
+		NextProtos:   []string{"goc/1"},
+	}
+	client := &tls.Config{
+		Certificates: []tls.Certificate{identity},
+		RootCAs:      pool,
+		MinVersion:   tls.VersionTLS13,
+		NextProtos:   []string{"goc/1"},
+		ServerName:   tlsServerName,
+	}
+	return server, client, nil
+}
+
+func loadOrCreateIdentity(secretsDir string) (tls.Certificate, error) {
+	if err := os.MkdirAll(secretsDir, 0o755); err != nil {
+		return tls.Certificate{}, err
+	}
+	certPath := filepath.Join(secretsDir, identityCertName)
+	keyPath := filepath.Join(secretsDir, identityKeyName)
+	if _, err := os.Stat(certPath); err == nil {
+		return tls.LoadX509KeyPair(certPath, keyPath)
+	}
+	cert, key, err := generateIdentity()
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+	if err := os.WriteFile(certPath, cert, 0o600); err != nil {
+		return tls.Certificate{}, err
+	}
+	if err := os.WriteFile(keyPath, key, 0o600); err != nil {
+		return tls.Certificate{}, err
+	}
+	return tls.LoadX509KeyPair(certPath, keyPath)
+}
+
+func loadTrustedPool(baseDir string, entries []string, identity tls.Certificate) (*x509.CertPool, error) {
+	pool := x509.NewCertPool()
+	if len(identity.Certificate) > 0 {
+		if parsed, err := x509.ParseCertificate(identity.Certificate[0]); err == nil {
+			pool.AddCert(parsed)
+		}
+	}
+	for _, entry := range entries {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		var data []byte
+		if strings.Contains(entry, "-----BEGIN") {
+			data = []byte(entry)
+		} else {
+			path := entry
+			if !filepath.IsAbs(path) {
+				path = filepath.Join(baseDir, path)
+			}
+			b, err := os.ReadFile(path)
+			if err != nil {
+				return nil, err
+			}
+			data = b
+		}
+		if ok := pool.AppendCertsFromPEM(data); !ok {
+			return nil, fmt.Errorf("unable to parse trusted peer certificate")
+		}
+	}
+	return pool, nil
+}
+
+func generateIdentity() ([]byte, []byte, error) {
 	tmpl := &x509.Certificate{
 		SerialNumber:          big.NewInt(time.Now().UnixNano()),
 		NotBefore:             time.Now().Add(-time.Hour),
 		NotAfter:              time.Now().Add(365 * 24 * time.Hour),
 		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
-		IsCA:                  true,
 		BasicConstraintsValid: true,
+		IsCA:                  false,
 		DNSNames:              []string{tlsServerName},
 	}
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -410,26 +497,7 @@ func newTLSConfigs() (*tls.Config, *tls.Config, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	cert := tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
-	parsed, err := x509.ParseCertificate(der)
-	if err != nil {
-		return nil, nil, err
-	}
-	pool := x509.NewCertPool()
-	pool.AddCert(parsed)
-	server := &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		ClientAuth:   tls.RequireAnyClientCert,
-		ClientCAs:    pool,
-		NextProtos:   []string{"goc/1"},
-		MinVersion:   tls.VersionTLS13,
-	}
-	client := &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		RootCAs:      pool,
-		NextProtos:   []string{"goc/1"},
-		MinVersion:   tls.VersionTLS13,
-		ServerName:   tlsServerName,
-	}
-	return server, client, nil
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	return certPEM, keyPEM, nil
 }

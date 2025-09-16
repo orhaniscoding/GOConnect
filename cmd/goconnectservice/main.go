@@ -47,7 +47,7 @@ func (p *program) run() {
 	_ = gi18n.LoadFromFiles(filepath.Join(exeDir, "internal", "i18n"))
 	gi18n.SetActiveLanguage(cfg.Language)
 
-	_, logDir, _ := config.Paths()
+	_, logDir, secretsDir := config.Paths()
 	logPath := filepath.Join(logDir, "agent.log")
 	logger, closer, err := golog.SetupLogger(logPath)
 	if err != nil {
@@ -63,16 +63,17 @@ func (p *program) run() {
 	p.tray = traymgr.New(exeDir, trayBinary, logger)
 
 	st := core.NewState(core.Settings{
-		Port:          cfg.Port,
-		MTU:           cfg.MTU,
-		LogLevel:      cfg.LogLevel,
-		Language:      cfg.Language,
-		Autostart:     cfg.Autostart,
-		ControllerURL: cfg.ControllerURL,
-		RelayURLs:     cfg.RelayURLs,
-		UDPPort:       cfg.UDPPort,
-		Peers:         cfg.Peers,
-		StunServers:   cfg.StunServers,
+		Port:             cfg.Port,
+		MTU:              cfg.MTU,
+		LogLevel:         cfg.LogLevel,
+		Language:         cfg.Language,
+		Autostart:        cfg.Autostart,
+		ControllerURL:    cfg.ControllerURL,
+		RelayURLs:        cfg.RelayURLs,
+		UDPPort:          cfg.UDPPort,
+		Peers:            cfg.Peers,
+		StunServers:      cfg.StunServers,
+		TrustedPeerCerts: cfg.TrustedPeerCerts,
 	})
 	st.SetTunDevice(gtun.New())
 	st.Start()
@@ -119,7 +120,11 @@ func (p *program) run() {
 		}
 	}
 
-	p.tx = gtx.NewManager(fmt.Sprintf(":%d", cfg.UDPPort), cfg.StunServers)
+	manager, err := gtx.NewManager(fmt.Sprintf(":%d", cfg.UDPPort), cfg.StunServers, secretsDir, cfg.TrustedPeerCerts)
+	if err != nil {
+		logger.Fatalf("transport init: %v", err)
+	}
+	p.tx = manager
 	p.tx.SetNATUpdateFn(func(ep string) {
 		st.SetPublicEndpoint(ep)
 		if ep != "" {

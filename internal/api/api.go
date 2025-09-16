@@ -106,8 +106,8 @@ func (a *API) csrfMiddleware(next http.Handler) http.Handler {
 		http.SetCookie(w, &http.Cookie{
 			Name:     "goc_csrf",
 			Value:    a.csrfToken,
-			HttpOnly: false,
-			Secure:   false,
+			HttpOnly: true,
+			Secure:   r.TLS != nil,
 			Path:     "/",
 			SameSite: http.SameSiteStrictMode,
 		})
@@ -171,6 +171,7 @@ func (a *API) handleStatus(w http.ResponseWriter, r *http.Request) (int, any) {
 		"controller":      map[bool]string{true: "connected", false: "disconnected"}[ctrl],
 		"public_endpoint": a.state.PublicEndpoint(),
 		"tray_state":      trayState,
+		"csrf_token":      a.csrfToken,
 		"tray_last_seen":  lastSeen,
 		"i18n":            gi18n.ActiveLanguage(),
 	}
@@ -356,16 +357,17 @@ func (a *API) handleSettings(w http.ResponseWriter, r *http.Request) (int, any) 
 		return 200, s
 	case http.MethodPut:
 		var in struct {
-			Port          int      `json:"port"`
-			MTU           int      `json:"mtu"`
-			LogLevel      string   `json:"log_level"`
-			Language      string   `json:"language"`
-			Autostart     bool     `json:"autostart"`
-			ControllerURL string   `json:"controller_url"`
-			RelayURLs     []string `json:"relay_urls"`
-			UDPPort       int      `json:"udp_port"`
-			Peers         []string `json:"peers"`
-			StunServers   []string `json:"stun_servers"`
+			Port             int      `json:"port"`
+			MTU              int      `json:"mtu"`
+			LogLevel         string   `json:"log_level"`
+			Language         string   `json:"language"`
+			Autostart        bool     `json:"autostart"`
+			ControllerURL    string   `json:"controller_url"`
+			RelayURLs        []string `json:"relay_urls"`
+			UDPPort          int      `json:"udp_port"`
+			Peers            []string `json:"peers"`
+			StunServers      []string `json:"stun_servers"`
+			TrustedPeerCerts []string `json:"trusted_peer_certs"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			return 400, map[string]string{"error": "bad_json"}
@@ -390,6 +392,9 @@ func (a *API) handleSettings(w http.ResponseWriter, r *http.Request) (int, any) 
 		}
 		if in.StunServers != nil {
 			a.cfg.StunServers = in.StunServers
+		}
+		if in.TrustedPeerCerts != nil {
+			a.cfg.TrustedPeerCerts = in.TrustedPeerCerts
 		}
 		relayCopy := append([]string(nil), a.cfg.RelayURLs...)
 		peersCopy := append([]string(nil), a.cfg.Peers...)

@@ -33,16 +33,17 @@ type Peer struct {
 }
 
 type Settings struct {
-	Port          int
-	MTU           int
-	LogLevel      string
-	Language      string
-	Autostart     bool
-	ControllerURL string
-	RelayURLs     []string
-	UDPPort       int
-	Peers         []string
-	StunServers   []string
+	Port             int
+	MTU              int
+	LogLevel         string
+	Language         string
+	Autostart        bool
+	ControllerURL    string
+	RelayURLs        []string
+	UDPPort          int
+	Peers            []string
+	StunServers      []string
+	TrustedPeerCerts []string
 }
 
 type State struct {
