@@ -36,7 +36,10 @@ var (
 func main() {
 	exeDir, _ := os.Getwd()
 	_ = gi18n.LoadFromFiles(filepath.Join(exeDir, "internal", "i18n"))
-	cfg, _ := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("config load: %v", err)
+	}
 	if cfg.Language != "" {
 		currentLanguage = cfg.Language
 	}
@@ -60,7 +63,6 @@ func onReady() {
 
 	applyLanguage(currentLanguage)
 
-	// Notify server tray is online and start heartbeats.
 	_ = apiPost("/api/tray/heartbeat")
 	go heartbeatLoop()
 

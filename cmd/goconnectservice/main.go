@@ -41,7 +41,7 @@ func (p *program) run() {
 
 	cfg, err := config.Load()
 	if err != nil {
-		log.Printf("config load: %v", err)
+		log.Fatalf("config load: %v", err)
 	}
 	exeDir, _ := os.Getwd()
 	_ = gi18n.LoadFromFiles(filepath.Join(exeDir, "internal", "i18n"))

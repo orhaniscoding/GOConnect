@@ -7,7 +7,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/binary"
-	"encoding/pem"
 	"fmt"
 	"math/big"
 	"net"
@@ -26,26 +25,52 @@ type PeerInfo struct {
 }
 
 type Manager struct {
-	addr           string
-	stunServers    []string
-	mu             sync.RWMutex
-	peers          map[string]*PeerInfo
-	publicEndpoint string
-	natUpdate      func(string)
-	ln             *quic.Listener
-	stopCh         chan struct{}
+	addr            string
+	stunServers     []string
+	mu              sync.RWMutex
+	peers           map[string]*PeerInfo
+	publicEndpoint  string
+	natUpdate       func(string)
+	ln              *quic.Listener
+	stopCh          chan struct{}
+	tlsOnce         sync.Once
+	tlsErr          error
+	tlsConfig       *tls.Config
+	clientTLSConfig *tls.Config
 }
+
+const (
+	dialInitialBackoff = time.Second
+	dialMaxBackoff     = 30 * time.Second
+	maxDialFailures    = 20
+	tlsServerName      = "goconnect"
+)
 
 func NewManager(udpAddr string, stunServers []string) *Manager {
 	servers := append([]string(nil), stunServers...)
 	return &Manager{addr: udpAddr, stunServers: servers, peers: map[string]*PeerInfo{}}
 }
 
+func (m *Manager) ensureTLSConfig() error {
+	m.tlsOnce.Do(func() {
+		server, client, err := newTLSConfigs()
+		if err != nil {
+			m.tlsErr = err
+			return
+		}
+		m.tlsConfig = server
+		m.clientTLSConfig = client
+	})
+	return m.tlsErr
+}
+
 func (m *Manager) Start(peers []string) error {
 	if m.ln != nil {
 		return nil
 	}
-	tlsConf := generateTLS()
+	if err := m.ensureTLSConfig(); err != nil {
+		return err
+	}
 	udpAddr, err := net.ResolveUDPAddr("udp", m.addr)
 	if err != nil {
 		return err
@@ -54,7 +79,7 @@ func (m *Manager) Start(peers []string) error {
 	if err != nil {
 		return err
 	}
-	ln, err := quic.Listen(conn, tlsConf, &quic.Config{})
+	ln, err := quic.Listen(conn, m.tlsConfig, &quic.Config{})
 	if err != nil {
 		return err
 	}
@@ -110,12 +135,18 @@ func (m *Manager) acceptLoop() {
 }
 
 func (m *Manager) dialLoop(peers []string) {
-	tlsConf := &tls.Config{InsecureSkipVerify: true, NextProtos: []string{"goc/1"}}
 	stop := m.stopCh
+	delay := dialInitialBackoff
+	failures := 0
 	for {
 		for _, p := range peers {
+			if stop == nil {
+				return
+			}
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			start := time.Now()
+			tlsConf := m.clientTLSConfig.Clone()
+			tlsConf.ServerName = tlsServerName
 			sess, err := quic.DialAddr(ctx, p, tlsConf, &quic.Config{})
 			if err == nil {
 				str, err2 := sess.OpenStreamSync(ctx)
@@ -127,18 +158,45 @@ func (m *Manager) dialLoop(peers []string) {
 					m.updateRTT(p, rtt)
 				}
 				_ = sess.CloseWithError(0, "done")
+				failures = 0
+				delay = dialInitialBackoff
+			} else {
+				failures++
+				cancel()
+				if failures >= maxDialFailures {
+					return
+				}
+				select {
+				case <-stop:
+					return
+				case <-time.After(delay):
+				}
+				delay *= 2
+				if delay > dialMaxBackoff {
+					delay = dialMaxBackoff
+				}
+				continue
 			}
 			cancel()
+			if stop != nil {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+			}
 			select {
-			case <-time.After(2 * time.Second):
+			case <-time.After(time.Second):
 			case <-stop:
 				return
 			}
 		}
-		select {
-		case <-stop:
-			return
-		default:
+		if stop != nil {
+			select {
+			case <-stop:
+				return
+			default:
+			}
 		}
 	}
 }
@@ -163,11 +221,11 @@ func (m *Manager) probeSTUN() {
 		if server == "" {
 			continue
 		}
-		addr, err := queryPublicEndpoint(server)
+		ep, err := queryPublicEndpoint(server)
 		if err != nil {
 			continue
 		}
-		m.setPublicEndpoint(addr)
+		m.setPublicEndpoint(ep)
 		return
 	}
 }
@@ -304,7 +362,7 @@ func parseStunResponse(resp []byte, txID [12]byte) (string, error) {
 			break
 		}
 		value := attrs[offset : offset+attrLen]
-		offset += (attrLen + 3) &^ 3 // 32-bit alignment
+		offset += (attrLen + 3) &^ 3
 		if attrType != xorMappedAddress || len(value) < 8 {
 			continue
 		}
@@ -333,7 +391,7 @@ func equalBytes(a, b []byte) bool {
 	return true
 }
 
-func generateTLS() *tls.Config {
+func newTLSConfigs() (*tls.Config, *tls.Config, error) {
 	tmpl := &x509.Certificate{
 		SerialNumber:          big.NewInt(time.Now().UnixNano()),
 		NotBefore:             time.Now().Add(-time.Hour),
@@ -342,12 +400,36 @@ func generateTLS() *tls.Config {
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
 		IsCA:                  true,
 		BasicConstraintsValid: true,
+		DNSNames:              []string{tlsServerName},
 	}
-	key, _ := rsa.GenerateKey(rand.Reader, 2048)
-	der, _ := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
-	cert := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
-	pkcs8, _ := x509.MarshalPKCS8PrivateKey(key)
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: pkcs8})
-	tlsCert, _ := tls.X509KeyPair(cert, keyPEM)
-	return &tls.Config{Certificates: []tls.Certificate{tlsCert}, NextProtos: []string{"goc/1"}, InsecureSkipVerify: true}
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, nil, err
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		return nil, nil, err
+	}
+	cert := tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
+	parsed, err := x509.ParseCertificate(der)
+	if err != nil {
+		return nil, nil, err
+	}
+	pool := x509.NewCertPool()
+	pool.AddCert(parsed)
+	server := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		ClientAuth:   tls.RequireAnyClientCert,
+		ClientCAs:    pool,
+		NextProtos:   []string{"goc/1"},
+		MinVersion:   tls.VersionTLS13,
+	}
+	client := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		RootCAs:      pool,
+		NextProtos:   []string{"goc/1"},
+		MinVersion:   tls.VersionTLS13,
+		ServerName:   tlsServerName,
+	}
+	return server, client, nil
 }

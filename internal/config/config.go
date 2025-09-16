@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,7 +56,7 @@ func Default(language string) *Config {
 func ProgramDataBase() string {
 	pd := os.Getenv("ProgramData")
 	if pd == "" {
-		pd = `C:\\ProgramData`
+		pd = `C:\ProgramData`
 	}
 	return filepath.Join(pd, "GOConnect")
 }
@@ -99,7 +100,7 @@ func Load() (*Config, error) {
 	}
 	cfg := Default(systemLocale())
 	if err := yaml.Unmarshal(b, cfg); err != nil {
-		return cfg, nil
+		return nil, fmt.Errorf("config parse: %w", err)
 	}
 	if cfg.Networks == nil {
 		cfg.Networks = []Network{}

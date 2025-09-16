@@ -49,6 +49,11 @@ func New(state *core.State, cfg *config.Config, logger *log.Logger, tray *traymg
 		sseSubs:   map[chan string]struct{}{},
 	}
 	state.SetNetworks(mapNetworks(cfg.Networks))
+	for _, n := range cfg.Networks {
+		if n.Address != "" {
+			a.ipam.Reserve(n.ID, n.Address)
+		}
+	}
 	return a
 }
 
