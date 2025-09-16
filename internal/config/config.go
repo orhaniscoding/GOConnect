@@ -104,6 +104,15 @@ func Load() (*Config, error) {
 	if cfg.Networks == nil {
 		cfg.Networks = []Network{}
 	}
+	if cfg.Port == 0 {
+		cfg.Port = DefaultPort
+	}
+	if cfg.MTU == 0 {
+		cfg.MTU = DefaultMTU
+	}
+	if cfg.LogLevel == "" {
+		cfg.LogLevel = DefaultLogLevel
+	}
 	return cfg, nil
 }
 

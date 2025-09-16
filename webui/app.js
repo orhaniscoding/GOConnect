@@ -1,9 +1,29 @@
+﻿function activateSection(section) {
+  if (!section) {
+    section = "dashboard";
+  }
+  const link = document.querySelector(`.sidebar .navlink[data-section="${section}"]`);
+  document.querySelectorAll('.sidebar .navlink').forEach((a) => a.classList.remove('active'));
+  if (link) {
+    link.classList.add('active');
+  }
+  document.querySelectorAll('.section').forEach((s) => s.classList.remove('active'));
+  const sectionEl = document.getElementById(`section-${section}`);
+  if (sectionEl) {
+    sectionEl.classList.add('active');
+  }
+  const titleKey = `nav.${section}`;
+  document.getElementById('section-title').innerText = t(titleKey);
+}
 let I18N = {};
 let CSRF = "";
 
 async function init() {
   bindSidebarNav();
+  applyHashNavigation();
+  window.addEventListener("hashchange", applyHashNavigation);
   await loadI18n();
+  applyHashNavigation();
   await loadStatus();
   bindActions();
   connectSSE();
@@ -37,19 +57,23 @@ function applyTranslations() {
   document.title = t("app.title");
 }
 
+
 function bindSidebarNav() {
   document.querySelectorAll(".sidebar .navlink").forEach((link) => {
     link.addEventListener("click", (e) => {
       e.preventDefault();
-      document.querySelectorAll(".sidebar .navlink").forEach((a) => a.classList.remove("active"));
-      link.classList.add("active");
       const target = link.dataset.section;
-      document.querySelectorAll(".section").forEach((s) => s.classList.remove("active"));
-      document.getElementById(`section-${target}`).classList.add("active");
-      document.getElementById("section-title").innerText = t(`nav.${target}`);
+      window.location.hash = `#${target}`;
+      activateSection(target);
     });
   });
 }
+
+function applyHashNavigation() {
+  const section = window.location.hash ? window.location.hash.substring(1) : "dashboard";
+  activateSection(section);
+}
+
 
 async function loadI18n() {
   const lang = window._goc_lang || "en";
@@ -64,12 +88,20 @@ async function loadStatus() {
     const res = await fetch("/api/status", { credentials: "same-origin" });
     CSRF = getCookie("goc_csrf") || CSRF;
     const data = await res.json();
-    window._goc_lang = data.i18n;
+    const previousLang = window._goc_lang || "en";
+    const nextLang = data.i18n || previousLang;
+    const languageChanged = nextLang !== previousLang;
+    window._goc_lang = nextLang;
+    // Reload translations when backend language changes.
+    if (languageChanged) {
+      await loadI18n();
+    }
     setBadge("svc-state", data.service_state);
     setBadge("tun-state", data.tun_state);
     setBadge("ctrl-state", data.controller);
     updatePublicEndpoint(data.public_endpoint);
     updateTunSelf(data.tun_error);
+    updateTrayState(data.tray_state, data.tray_last_seen);
   } catch (err) {
     console.error("status", err);
   }
@@ -105,6 +137,26 @@ function updateTunSelf(err) {
   } else {
     el.textContent = t("dashboard.tunOk");
     el.className = "badge running";
+  }
+}
+
+function updateTrayState(state, lastSeen) {
+  const el = document.getElementById("tray-state");
+  if (!el) return;
+  const statusKey = state === "online" ? "status.trayOnline" : "status.trayOffline";
+  el.textContent = t(statusKey);
+  el.className = state === "online" ? "badge running" : "badge stopped";
+  if (lastSeen) {
+    try {
+      const ts = new Date(lastSeen);
+      if (!Number.isNaN(ts.getTime())) {
+        el.title = ts.toLocaleString();
+      }
+    } catch (e) {
+      el.title = "";
+    }
+  } else {
+    el.title = "";
   }
 }
 
@@ -293,6 +345,24 @@ function bindActions() {
       alert(`Shutdown failed: ${err.message || err}`);
     }
   };
+  document.getElementById("btn-tray-start").onclick = async () => {
+    try {
+      await post("/api/tray/start");
+      await loadStatus();
+    } catch (err) {
+      console.error("tray start", err);
+      alert(`Tray start failed: ${err.message || err}`);
+    }
+  };
+  document.getElementById("btn-tray-stop").onclick = async () => {
+    try {
+      await post("/api/tray/stop");
+      await loadStatus();
+    } catch (err) {
+      console.error("tray stop", err);
+      alert(`Tray stop failed: ${err.message || err}`);
+    }
+  };
   const form = document.getElementById("settings-form");
   if (form) {
     form.addEventListener("submit", async (e) => {
@@ -352,7 +422,12 @@ async function post(path) {
 }
 
 async function postJSON(path, body) {
-  const res = await fetch(path, {\n    method: "POST",\n    credentials: "same-origin",\n    headers: { "X-CSRF-Token": CSRF, "Content-Type": "application/json" },\n    body: JSON.stringify(body),\n  });
+  const res = await fetch(path, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "X-CSRF-Token": CSRF, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`${res.status} ${res.statusText}${text ? `: ${text}` : ""}`);
@@ -361,7 +436,12 @@ async function postJSON(path, body) {
 }
 
 async function put(path, body) {
-  const res = await fetch(path, {\n    method: "PUT",\n    credentials: "same-origin",\n    headers: { "X-CSRF-Token": CSRF, "Content-Type": "application/json" },\n    body: JSON.stringify(body),\n  });
+  const res = await fetch(path, {
+    method: "PUT",
+    credentials: "same-origin",
+    headers: { "X-CSRF-Token": CSRF, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`${res.status} ${res.statusText}${text ? `: ${text}` : ""}`);
@@ -385,4 +465,13 @@ function getCookie(name) {
 }
 
 document.addEventListener("DOMContentLoaded", init);
+
+
+
+
+
+
+
+
+
 

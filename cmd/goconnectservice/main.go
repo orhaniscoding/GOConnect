@@ -19,12 +19,14 @@ import (
 	gi18n "goconnect/internal/i18n"
 	golog "goconnect/internal/logging"
 	gtx "goconnect/internal/transport"
+	"goconnect/internal/traymgr"
 	gtun "goconnect/internal/tun"
 )
 
 type program struct {
 	srv    *http.Server
 	tx     *gtx.Manager
+	tray   *traymgr.Manager
 	cancel context.CancelFunc
 }
 
@@ -57,6 +59,9 @@ func (p *program) run() {
 		}
 	}()
 
+	trayBinary := filepath.Join(exeDir, "bin", "GOConnectTray.exe")
+	p.tray = traymgr.New(exeDir, trayBinary, logger)
+
 	st := core.NewState(core.Settings{
 		Port:          cfg.Port,
 		MTU:           cfg.MTU,
@@ -70,8 +75,9 @@ func (p *program) run() {
 		StunServers:   cfg.StunServers,
 	})
 	st.SetTunDevice(gtun.New())
+	st.Start()
 
-	a := api.New(st, cfg, logger, func() {
+	a := api.New(st, cfg, logger, p.tray, func() {
 		if p.cancel != nil {
 			p.cancel()
 		}
@@ -105,6 +111,14 @@ func (p *program) run() {
 	}()
 	logger.Printf("HTTP API listening at http://%s (webDir=%s)", addr, webDir)
 
+	if p.tray != nil {
+		if err := p.tray.Start(); err != nil {
+			logger.Printf("tray start error: %v", err)
+		} else {
+			st.RecordTrayHeartbeat()
+		}
+	}
+
 	p.tx = gtx.NewManager(fmt.Sprintf(":%d", cfg.UDPPort), cfg.StunServers)
 	p.tx.SetNATUpdateFn(func(ep string) {
 		st.SetPublicEndpoint(ep)
@@ -123,11 +137,15 @@ func (p *program) run() {
 	case <-ctx.Done():
 	}
 	signal.Stop(sigc)
+
 	if p.srv != nil {
 		_ = p.srv.Close()
 	}
 	if p.tx != nil {
 		_ = p.tx.Stop()
+	}
+	if p.tray != nil {
+		_ = p.tray.Stop()
 	}
 }
 
@@ -140,6 +158,9 @@ func (p *program) Stop(s service.Service) error {
 	}
 	if p.tx != nil {
 		_ = p.tx.Stop()
+	}
+	if p.tray != nil {
+		_ = p.tray.Stop()
 	}
 	return nil
 }

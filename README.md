@@ -1,14 +1,14 @@
 ﻿# GOConnect (Prototype)
 
-GOConnect is a Windows-first virtual overlay network agent, inspired by ZeroTier/Tailscale. The repository provides a long-running service (agent + local HTTP API + transport), a tray companion, and a bundled Web UI served from http://127.0.0.1:2537 for configuration and diagnostics.
+GOConnect, created by [orhaniscoding](https://github.com/orhaniscoding), is a Windows-first virtual overlay network agent, inspired by ZeroTier/Tailscale. The repository provides a long-running service (agent + local HTTP API + transport), a tray companion, and a bundled Web UI served from http://127.0.0.1:2537 for configuration and diagnostics.
 
 Notes: The v1.x line now ships with a functional Wintun integration (optional build tag), QUIC peer manager with STUN-based public endpoint discovery, DPAPI-backed secret helpers, a persistent local network registry (join/leave), and a fully internationalised tray + Web UI. Controller federation and advanced routing remain roadmap items.
 
 ## Directory Structure
 
-goconnect/
-- `cmd/service` – GOConnect Service (agent supervisor + API bootstrap)
-- `cmd/tray` – GOConnect Tray app (systray controller & language switcher)
+GOConnect/
+- `cmd/goconnectservice` – GOConnect Service (agent supervisor + API bootstrap)
+- `cmd/goconnecttray` – GOConnect Tray app (systray controller & language switcher)
 - `internal/api` – HTTP handlers, CSRF, SSE log stream, asset resolution
 - `internal/core` – service state machine, settings, tunnel orchestration
 - `internal/tun` – TUN abstraction (stub + Wintun implementation via build tag)
@@ -55,13 +55,15 @@ goconnect/
 Prerequisites: Go 1.22+ on Windows. Building with real systray/service packages requires either internet access or the provided stubs.
 
 - Build all: `go build ./...`
-- Run service (dev, foreground): `go run ./cmd/service`
-- Optional (Wintun): install the Wintun driver + DLL, then `go run -tags=wintun ./cmd/service`
+- Build service: `go build -o bin/GOConnectService.exe ./cmd/goconnectservice`
+- Build tray: `go build -o bin/GOConnectTray.exe ./cmd/goconnecttray`
+- Run service (dev, foreground): `go run ./cmd/goconnectservice`
+- Optional (Wintun): install the Wintun driver + DLL, then `go run -tags=wintun ./cmd/goconnectservice`
 - Open Web UI: http://127.0.0.1:2537
-- Run tray: `go run ./cmd/tray`
+- Run tray: `go run ./cmd/goconnecttray`
 
 Service install (example, admin PowerShell):
-- Install: `powershell -ExecutionPolicy Bypass -File build\scripts\install-service.ps1 -ExePath "C:\\path\\to\\goconnect-service.exe"`
+- Install: `powershell -ExecutionPolicy Bypass -File build\scripts\install-service.ps1 -ExePath "C:\\path\\to\\GOConnectService.exe"`
 - Uninstall: `powershell -ExecutionPolicy Bypass -File build\scripts\uninstall-service.ps1`
 
 ProgramData paths:
@@ -70,7 +72,7 @@ ProgramData paths:
 - Secrets: `%ProgramData%\GOConnect\secrets\`
 
 ## How to Run (Quick)
-1. `go run ./cmd/service`
+1. `go run ./cmd/goconnectservice`
 2. Open http://127.0.0.1:2537
 3. Navigate tabs, use Start/Stop/Restart, tweak Settings (including STUN servers), and watch the live log stream.
 
@@ -84,6 +86,9 @@ ProgramData paths:
 - Harden CSRF/auth before exposing beyond localhost; add auth tokens and origin checks.
 - Replace naive YAML parsing improvements (validation, schema) and enhance locale detection via Windows APIs.
 - Extend diagnostics (MTU/STUN latency), persistent peer cache, and controller heartbeat for production readiness.
+
+
+
 
 
 

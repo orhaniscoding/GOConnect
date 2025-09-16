@@ -55,6 +55,8 @@ type State struct {
 	peers          []Peer
 	settings       Settings
 	publicEndpoint string
+	trayOnline     bool
+	trayLastSeen   time.Time
 	tunDev         gtun.Device
 }
 
@@ -86,7 +88,7 @@ func (s *State) Start() {
 	s.mu.Lock()
 	s.serviceState = StateRunning
 	dev := s.tunDev
-	joinedNetworks := hasJoinedNetwork(s.networks)
+	joined := hasJoinedNetwork(s.networks)
 	s.mu.Unlock()
 
 	tunUp := false
@@ -111,7 +113,7 @@ func (s *State) Start() {
 	} else {
 		s.tunErr = ""
 	}
-	s.controllerUp = tunUp && joinedNetworks
+	s.controllerUp = tunUp && joined
 	s.mu.Unlock()
 }
 
@@ -130,6 +132,7 @@ func (s *State) Stop() {
 	s.tunErr = ""
 	s.controllerUp = false
 	s.publicEndpoint = ""
+	s.trayOnline = false
 	s.mu.Unlock()
 }
 
@@ -171,6 +174,29 @@ func (s *State) TunError() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.tunErr
+}
+
+func (s *State) RecordTrayHeartbeat() {
+	s.mu.Lock()
+	s.trayOnline = true
+	s.trayLastSeen = time.Now()
+	s.mu.Unlock()
+}
+
+func (s *State) SetTrayOffline() {
+	s.mu.Lock()
+	s.trayOnline = false
+	s.mu.Unlock()
+}
+
+func (s *State) TrayStatus(now time.Time) (bool, time.Time) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	online := s.trayOnline
+	if !s.trayLastSeen.IsZero() {
+		online = online && now.Sub(s.trayLastSeen) < 30*time.Second
+	}
+	return online, s.trayLastSeen
 }
 
 func hasJoinedNetwork(n []Network) bool {

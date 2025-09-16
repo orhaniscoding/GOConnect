@@ -1,11 +1,11 @@
-param(
+﻿param(
   [string]$ExePath = "",
   [string]$ServiceName = "GOConnectService",
   [string]$DisplayName = "GOConnect Service"
 )
 
 if (-not $ExePath) {
-  $ExePath = Join-Path $PSScriptRoot "..\..\bin\goconnect-service.exe"
+  $ExePath = Join-Path $PSScriptRoot "..\..\bin\GOConnectService.exe"
 }
 
 Write-Host "Installing service '$ServiceName' with binary: $ExePath"
@@ -15,4 +15,5 @@ sc.exe create $ServiceName binPath= '"' + $ExePath + '"' start= delayed-auto Dis
 sc.exe description $ServiceName "GOConnect agent service with local API and web UI" | Out-Null
 sc.exe start $ServiceName | Out-Null
 Write-Host "Service installed and started."
+
 

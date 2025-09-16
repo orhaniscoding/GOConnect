@@ -45,6 +45,9 @@
             <div class="row tight">
               <div data-i18n="dashboard.tunSelf">Tunnel Self-Test</div><div><span id="tun-self" class="badge"></span></div>
             </div>
+            <div class="row tight">
+              <div data-i18n="dashboard.tray">Tray</div><div><span id="tray-state" class="badge"></span></div>
+            </div>
             <div class="row">
               <button id="btn-start" data-i18n="actions.start">Start</button>
               <button id="btn-stop" data-i18n="actions.stop">Stop</button>
@@ -56,6 +59,10 @@
             <div class="row">
               <button id="btn-diag" data-i18n="actions.runDiag">Run Diagnose</button>
               <button id="btn-exit" data-i18n="actions.shutdown">Shutdown Agent</button>
+            </div>
+            <div class="row">
+              <button id="btn-tray-start" data-i18n="actions.trayStart">Start Tray</button>
+              <button id="btn-tray-stop" data-i18n="actions.trayStop">Stop Tray</button>
             </div>
           </div>
         </div>
@@ -99,7 +106,7 @@
           <label><span data-i18n="settings.language">Language</span>
             <select id="language">
               <option value="en" data-i18n-option="language.en">English</option>
-              <option value="tr" data-i18n-option="language.tr">Türkçe</option>
+              <option value="tr" data-i18n-option="language.tr">TÃ¼rkÃ§e</option>
             </select>
           </label>
           <label class="checkbox"><input type="checkbox" id="autostart"> <span data-i18n="settings.autostart">Autostart</span></label>
@@ -126,10 +133,15 @@
 
       <section id="section-about" class="section">
         <h3 data-i18n="nav.about">About</h3>
-        <p data-i18n="about.text">GOConnect v1.x — Local overlay agent. Networking features are being enabled step-by-step.</p>
+        <p data-i18n="about.text">GOConnect v1.x â€” Local overlay agent. Networking features are being enabled step-by-step.</p>
       </section>
 
     </main>
   </div>
 </body>
 </html>
+
+
+
+
+
