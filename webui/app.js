@@ -17,6 +17,7 @@
 }
 let I18N = {};
 let CSRF = "";
+const I18N_VERSION = "20250918-1"; // bump to force cache bust when i18n files change
 
 async function init() {
   bindSidebarNav();
@@ -77,7 +78,8 @@ function applyHashNavigation() {
 
 async function loadI18n() {
   const lang = window._goc_lang || "en";
-  const res = await fetch(`/i18n/${lang}.json`, { credentials: "same-origin" });
+  // cache-busting query param to ensure updated keys (like nav.chat) are fetched
+  const res = await fetch(`/i18n/${lang}.json?v=${encodeURIComponent(I18N_VERSION)}`, { credentials: "same-origin" });
   I18N = await res.json();
   applyTranslations();
   document.getElementById("app-title").innerText = t("app.title");
@@ -258,6 +260,7 @@ async function showNetworkDetails(networkId, joined) {
     detailsPanel.innerHTML = "";
     // Owner panel (show if user is owner, here we show for all joined for demo)
     if (joined) {
+      const controllerMode = settings.ControllerManaged || settings.controllerManaged;
       detailsPanel.appendChild(renderNetworkSettingsPanel(settings, async (updated) => {
         const resp = await fetch(`/api/v1/networks/${networkId}/settings`, {
           method: "PUT",
@@ -287,8 +290,16 @@ async function showNetworkDetails(networkId, joined) {
         }
         await loadNetworks();
         showNetworkDetails(networkId, joined);
-      }));
+      }, controllerMode));
       detailsPanel.appendChild(renderEffectivePolicyPanel(policy));
+      // If controller mode, sync chat from controller endpoint
+      if (controllerMode) {
+        fetch(`/api/controller/networks/${settings.ID || settings.Id || settings.id}/chat`)
+          .then(r => r.json())
+          .then(chat => {
+            if (window.updateChatUI) window.updateChatUI(chat);
+          });
+      }
     } else {
       detailsPanel.innerHTML = "<div>Not a member of this network.</div>";
     }
@@ -541,8 +552,14 @@ function connectChatStream(networkId) {
 }
 
 function appendChatMessage(msg) {
-  const messagesEl = document.getElementById('chat-messages');
-  if (!messagesEl) return;
+        const statusEl = document.getElementById('chat-status');
+        if (res.status === 403) {
+          if (statusEl) statusEl.textContent = t('chat.disabled') || 'Chat disabled';
+        } else if (res.status === 429) {
+          if (statusEl) statusEl.textContent = t('chat.rateLimited') || 'Rate limited';
+        } else {
+          if (statusEl) statusEl.textContent = t('chat.sendFailed') || 'Send failed';
+        }
   const time = msg.At ? new Date(msg.At).toLocaleTimeString() : '';
   const line = document.createElement('div');
   line.textContent = `[${time}] ${msg.From||''}: ${msg.Text||''}`;

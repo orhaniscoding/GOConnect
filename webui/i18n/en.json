@@ -86,5 +86,6 @@
   "chat.disconnected": "Disconnected",
   "chat.sendFailed": "Send failed",
   "chat.disabled": "Chat disabled"
+  ,"chat.rateLimited": "Too fast, slow down"
   
 }

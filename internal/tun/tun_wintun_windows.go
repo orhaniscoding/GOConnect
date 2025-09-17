@@ -1,3 +1,48 @@
+
+//go:build windows && wintun
+
+package tun
+// Read reads a packet from the TUN device.
+func (d *device) Read(b []byte) (int, error) {
+	if d.dev == nil {
+		return 0, fmt.Errorf("device not up")
+	}
+	return d.dev.Read(b, 0)
+}
+
+// Write writes a packet to the TUN device.
+func (d *device) Write(b []byte) (int, error) {
+	if d.dev == nil {
+		return 0, fmt.Errorf("device not up")
+	}
+	return d.dev.Write(b, 0)
+}
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"net"
+	"os/exec"
+	"time"
+
+	wgTun "golang.zx2c4.com/wireguard/tun"
+)
+
+// Real Wintun-backed implementation (enabled with -tags=wintun).
+
+// SetAddress: Controller'dan gelen IP'yi arayüze uygula
+func (d *device) SetAddress(ip string) error {
+	if d.ifName == "" {
+		d.ifName = "GOConnect"
+	}
+	cmd := exec.Command("netsh", "interface", "ipv4", "set", "address",
+		fmt.Sprintf("name=%s", d.ifName), "static", ip, "255.255.255.255")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("netsh set address: %w", err)
+	}
+	return nil
+}
 //go:build windows && wintun
 
 package tun

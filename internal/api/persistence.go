@@ -30,6 +30,7 @@ const (
 type persistedStructures struct {
 	NetworkSettings   map[string]*NetworkSettingsState   `json:"network_settings"`
 	MemberPreferences map[string]*MemberPreferencesState `json:"member_preferences"`
+	ChatHistories     map[string][]ChatMessage           `json:"chat_histories,omitempty"`
 }
 
 // saveAll writes both structures; currently best-effort, errors are returned but caller may choose to log only.
@@ -51,6 +52,17 @@ func (a *API) saveAll() error {
 	a.netMu.RUnlock()
 
 	data := persistedStructures{NetworkSettings: ns, MemberPreferences: mp}
+	// include chat histories (non-sensitive text) limited already in memory
+	if len(a.chatHistories) > 0 {
+		ch := make(map[string][]ChatMessage, len(a.chatHistories))
+		for k, v := range a.chatHistories {
+			// copy slice
+			c := make([]ChatMessage, len(v))
+			copy(c, v)
+			ch[k] = c
+		}
+		data.ChatHistories = ch
+	}
 	b, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		return err
@@ -90,6 +102,9 @@ func (a *API) loadAllLocked() error {
 	}
 	if ps.MemberPreferences != nil {
 		a.memberPreferences = ps.MemberPreferences
+	}
+	if ps.ChatHistories != nil {
+		a.chatHistories = ps.ChatHistories
 	}
 	a.netMu.Unlock()
 	return nil

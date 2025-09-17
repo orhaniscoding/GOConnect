@@ -6,6 +6,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"goconnect/internal/config"
+	"goconnect/internal/core"
+	gi18n "goconnect/internal/i18n"
+	"goconnect/internal/ipam"
+	webfs "goconnect/webui"
+	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
@@ -14,12 +20,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"goconnect/internal/config"
-	"goconnect/internal/core"
-	gi18n "goconnect/internal/i18n"
-	"goconnect/internal/ipam"
-	webfs "goconnect/webui"
 )
 
 type API struct {
@@ -32,6 +32,8 @@ type API struct {
 	shutdown  func()
 	startTime time.Time
 
+	controllerToken string
+
 	sseMu   sync.Mutex
 	sseSubs map[chan string]struct{}
 	peersFn func() []map[string]any
@@ -42,6 +44,7 @@ type API struct {
 	memberPreferences map[string]*MemberPreferencesState       // key: networkID+"/"+member (only "me" supported now)
 	chatHistories     map[string][]ChatMessage                 // key: networkID
 	chatSubs          map[string]map[chan ChatMessage]struct{} // networkID -> subscribers
+	chatLast          map[string]time.Time                     // rate limit last send per network+user
 }
 
 // ChatMessage represents a single chat line within a network.
@@ -130,8 +133,15 @@ func New(state *core.State, cfg *config.Config, logger *log.Logger, shutdown fun
 		memberPreferences: map[string]*MemberPreferencesState{},
 		chatHistories:     map[string][]ChatMessage{},
 		chatSubs:          map[string]map[chan ChatMessage]struct{}{},
+		chatLast:          map[string]time.Time{},
 		startTime:         time.Now(),
 	}
+	// Load controller token if present
+	token := ""
+	if data, err := ioutil.ReadFile("secrets/controller_token.txt"); err == nil {
+		token = strings.TrimSpace(string(data))
+	}
+	a.controllerToken = token
 	// attempt load persisted state (best-effort)
 	_ = a.loadAllOnce()
 	state.SetNetworks(mapNetworks(cfg.Networks))
@@ -147,10 +157,78 @@ func New(state *core.State, cfg *config.Config, logger *log.Logger, shutdown fun
 	return a
 }
 
-func randomToken() string {
-	b := make([]byte, 16)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
+// Controller sync loop: ControllerURL varsa join ve snapshot çek
+func (a *API) StartControllerSync() {
+	url := a.cfg.ControllerURL
+	if url == "" {
+		return
+	}
+	go func() {
+		client := &http.Client{}
+		for _, n := range a.cfg.Networks {
+			// Join isteği
+			joinBody := map[string]any{
+				"nickname":    n.Name,
+				"chatEnabled": true,
+				"joinSecret":  n.JoinSecret,
+			}
+			b, _ := json.Marshal(joinBody)
+			req, _ := http.NewRequest("POST", url+"/api/controller/networks/"+n.ID+"/join", strings.NewReader(string(b)))
+			req.Header.Set("Content-Type", "application/json")
+			if a.controllerToken != "" {
+				req.Header.Set("Authorization", "Bearer "+a.controllerToken)
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				a.logger.Printf("Controller join hatası: %v", err)
+				continue
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != 200 {
+				a.logger.Printf("Controller join başarısız: %s", resp.Status)
+				continue
+			}
+			var member struct {
+				NodeID string `json:"nodeId"`
+				IP     string `json:"ip"`
+			}
+			_ = json.NewDecoder(resp.Body).Decode(&member)
+			a.logger.Printf("Controller'dan IP alındı: %s", member.IP)
+			if a.state != nil {
+				tun := a.state.TunDevice()
+				if tun != nil {
+					if err := tun.SetAddress(member.IP); err != nil {
+						a.logger.Printf("TUN IP atanamadı: %v", err)
+					} else {
+						a.logger.Printf("TUN arayüzüne IP atandı: %s", member.IP)
+					}
+				}
+			}
+		}
+		// Periyodik snapshot çek
+		for {
+			for _, n := range a.cfg.Networks {
+				req, _ := http.NewRequest("GET", url+"/api/controller/networks/"+n.ID+"/snapshot", nil)
+				if a.controllerToken != "" {
+					req.Header.Set("Authorization", "Bearer "+a.controllerToken)
+				}
+				resp, err := client.Do(req)
+				if err != nil {
+					a.logger.Printf("Controller snapshot hatası: %v", err)
+					continue
+				}
+				var snap struct {
+					Members []any `json:"members"`
+					Chats   []any `json:"chats"`
+				}
+				_ = json.NewDecoder(resp.Body).Decode(&snap)
+				resp.Body.Close()
+				// TODO: Üyeler ve chat listesini local state'e uygula
+				a.logger.Printf("Controller snapshot: %d üye, %d mesaj", len(snap.Members), len(snap.Chats))
+			}
+			time.Sleep(5 * time.Second)
+		}
+	}()
 }
 
 func (a *API) Serve(addr string, webDir string) *http.Server {
@@ -238,7 +316,7 @@ func (a *API) csrfMiddleware(next http.Handler) http.Handler {
 		})
 
 		if r.Method != http.MethodGet {
-			// Loopback requests to /api/exit are allowed without CSRF for tray client shutdown.
+			// Loopback requests to /api/exit are allowed without CSRF (local management convenience).
 			if r.URL.Path == "/api/exit" && isLoopback(r.RemoteAddr) {
 				next.ServeHTTP(w, r)
 				return
@@ -698,9 +776,7 @@ func (a *API) unsubscribeChat(networkID string, ch chan ChatMessage) {
 	close(ch)
 }
 
-// handleChatMessages supports:
-// GET -> list recent messages (up to 200)
-// POST -> add a new message {text:"..."}
+// handleChatMessages supports listing and sending chat messages with optional since filter and rate limiting.
 func (a *API) handleChatMessages(w http.ResponseWriter, r *http.Request) {
 	nid, ok := NetworkIDFromContext(r.Context())
 	if !ok {
@@ -709,9 +785,26 @@ func (a *API) handleChatMessages(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
+		sinceParam := r.URL.Query().Get("since")
+		var since time.Time
+		if sinceParam != "" {
+			if t, err := time.Parse(time.RFC3339, sinceParam); err == nil {
+				since = t
+			}
+		}
 		a.netMu.RLock()
 		msgs := a.chatHistories[nid]
-		out := append([]ChatMessage(nil), msgs...)
+		filtered := make([]ChatMessage, 0, len(msgs))
+		if !since.IsZero() {
+			for _, m := range msgs {
+				if m.At.After(since) || m.At.Equal(since) {
+					filtered = append(filtered, m)
+				}
+			}
+		} else {
+			filtered = append(filtered, msgs...)
+		}
+		out := append([]ChatMessage(nil), filtered...)
 		a.netMu.RUnlock()
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"messages": out})
@@ -732,7 +825,20 @@ func (a *API) handleChatMessages(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "bad json", http.StatusBadRequest)
 			return
 		}
+		// Rate limit: one message per 2 seconds per (network,user)
+		key := nid + "|" + prefs.Nickname
+		now := time.Now()
+		a.netMu.Lock()
+		last := a.chatLast[key]
+		if !last.IsZero() && now.Sub(last) < 2*time.Second {
+			a.netMu.Unlock()
+			http.Error(w, "rate limited", http.StatusTooManyRequests)
+			return
+		}
+		a.chatLast[key] = now
+		a.netMu.Unlock()
 		msg := a.addChatMessage(nid, prefs.Nickname, in.Text)
+		_ = a.saveAll() // best-effort persistence
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(msg)
 	default:
@@ -817,4 +923,12 @@ func mapNetworks(in []config.Network) []core.Network {
 		})
 	}
 	return out
+
+}
+
+// Benzersiz token üretici (ID ve CSRF için)
+func randomToken() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }

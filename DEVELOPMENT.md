@@ -103,7 +103,7 @@ Add new string keys in both `internal/i18n/*.json` and `webui/i18n/*.json`. Avoi
 
 ### Network Chat (Experimental)
 
-An in-memory per-network chat channel has been added for functional testing:
+Per-network chat channel for functional testing and UI validation:
 
 Endpoints (all under `/api/v1/networks/{id}`):
 
@@ -128,7 +128,7 @@ Message object schema:
 }
 ```
 
-Retention: Only last 200 messages kept per network (in-memory only, not persisted yet).
+Retention & Persistence: Last 200 messages per network retained and now persisted in `state.json` (reloaded on restart).
 
 UI:
 
@@ -136,11 +136,15 @@ UI:
 * Network selector lists joined networks.
 * Autoconnects SSE on selection; initial history loaded via REST.
 
+Rate Limiting: 1 message / 2s per (network,user) – HTTP 429 returned when exceeded.
+
+Query Filter: `GET /chat/messages?since=<RFC3339>` returns only newer messages.
+
 Limitations / Future Work:
 
-* Persistence not implemented (restart loses history).
-* No authentication / multi-user identity separation yet (nickname from member prefs used).
-* No paging or search.
-* Basic flood protection only via channel buffer; consider rate limiting.
+* No advanced authentication / multi-user identity separation yet (nickname used).
+* No paging beyond 200 message sliding window.
+* Consider WebSocket transport for richer events.
+* Potential future features: message edit/delete, reactions, moderation.
 
 Happy hacking! Open issues for architectural questions before large rewrites.

@@ -86,5 +86,6 @@
   "chat.disconnected": "Koptu",
   "chat.sendFailed": "Gönderim başarısız",
   "chat.disabled": "Sohbet kapalı"
+  ,"chat.rateLimited": "Çok hızlı, yavaşla"
   
 }

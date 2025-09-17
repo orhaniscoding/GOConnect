@@ -1,8 +1,122 @@
-﻿# GOConnect (Prototype)
+﻿
 
-GOConnect, created by [orhaniscoding](https://github.com/orhaniscoding), is a Windows-first virtual overlay network agent, inspired by ZeroTier/Tailscale. The repository now focuses on a single long-running service (agent + local HTTP API + transport) and a bundled Web UI served from http://127.0.0.1:2537 for configuration and diagnostics.
+# GOConnect
 
-Notes: The v1.x line now ships with a functional Wintun integration (optional build tag), QUIC peer manager with STUN-based public endpoint discovery, DPAPI-backed secret helpers, a persistent local network registry (join/leave), and an internationalised Web UI. Controller federation and advanced routing remain roadmap items.
+![GitHub release (latest by date)](https://img.shields.io/github/v/release/orhaniscoding/GOConnect)
+![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/orhaniscoding/GOConnect/ci.yml?branch=main)
+![Platform](https://img.shields.io/badge/platform-Windows-blue)
+
+---
+
+## 🇹🇷 Türkçe Açıklama
+
+**GOConnect**; Windows için geliştirilmiş, merkezi controller destekli, modern ve güvenli bir overlay ağ (VPN) çözümüdür. ZeroTier/Tailscale esintili, kolay kurulum ve merkezi yönetim sunar. Tüm istemciler ve controller tek binary ile çalışır, Web UI ile kolayca yönetilir.
+
+### Özellikler
+- Merkezi controller ile birden fazla cihazı (VPS, masaüstü, laptop) aynı ağa kolayca dahil etme
+- Modern Web UI (http://127.0.0.1:2537) ile ağ, sohbet ve ayar yönetimi
+- Wintun tabanlı TUN arayüzü (isteğe bağlı build tag)
+- QUIC tabanlı hızlı ve güvenli peer-to-peer iletişim
+- Token tabanlı kimlik doğrulama (controller/agent arası)
+- Sohbet, ağ ayarları, üyelik ve daha fazlası
+- Türkçe ve İngilizce arayüz desteği
+
+### Hızlı Kurulum
+1. **Controller (VPS veya ana makine):**
+	- `go build -o bin/goconnectcontroller.exe ./cmd/goconnectcontroller`
+	- Controller'ı başlatın, `secrets/controller_token.txt` içeriğini not edin.
+2. **İstemciler (Agent):**
+	- `go build -o bin/goconnect-service.exe ./cmd/goconnectservice`
+	- Web UI'dan Controller URL ve Token girerek ağa katılın.
+3. **Web UI:**
+	- http://127.0.0.1:2537 adresinden tüm yönetim ve izleme işlemlerini yapabilirsiniz.
+
+### Mimarî ve Temel Bileşenler
+- **cmd/goconnectservice**: Ana agent/servis binary'si (her istemciye kurulur)
+- **cmd/goconnectcontroller**: Controller binary'si (merkezi yönetim için VPS veya ana makineye kurulur)
+- **internal/**: Tüm backend ve ağ yönetim kodları
+- **webui/**: Modern Web UI ve i18n dosyaları
+- **build/scripts/**: Windows servis kurulum scriptleri
+- **stubs/**: Kardianos/service için offline stub (Windows servis entegrasyonu)
+
+### Güvenlik
+- Tüm controller-agent iletişimi için bearer token zorunlu
+- CSRF koruması ve local-only HTTP API
+- Windows DPAPI ile gizli anahtarlar şifrelenir
+
+### Desteklenen Platformlar
+- **Sadece Windows** (Linux/Mac desteği yoktur)
+
+### Katkı ve Destek
+- Sorun bildirimi ve katkı için GitHub Issues ve Pull Request'leri kullanabilirsiniz.
+- [orhaniscoding](https://github.com/orhaniscoding) ile iletişime geçebilirsiniz.
+
+### Lisans
+MIT Lisansı ile lisanslanmıştır. Ayrıntılar için [LICENSE](LICENSE) dosyasına bakınız.
+
+### Sıkça Sorulanlar
+- **Controller ve agent aynı binary mi?** Hayır, `goconnectcontroller.exe` (controller) ve `goconnect-service.exe` (agent) olarak iki ayrı binary vardır.
+- **Web UI nasıl açılır?** Her agent çalıştığında otomatik olarak http://127.0.0.1:2537 adresinde Web UI başlar.
+- **Token kaybolursa ne yapmalıyım?** Controller üzerinde `secrets/controller_token.txt` dosyasını tekrar kontrol edin veya yeni token oluşturun.
+- **Tray desteği var mı?** Hayır, tray/ikon desteği tamamen kaldırıldı.
+- **Linux/Mac desteği var mı?** Hayır, sadece Windows desteklenmektedir.
+
+---
+
+## 🇬🇧 English Description
+
+**GOConnect** is a modern, secure, controller-based overlay network (VPN) solution for Windows. Inspired by ZeroTier/Tailscale, it offers easy setup and centralized management. All clients and the controller run as a single binary, managed via a modern Web UI.
+
+### Features
+- Central controller: easily connect multiple devices (VPS, desktop, laptop) to the same network
+- Modern Web UI (http://127.0.0.1:2537) for network, chat, and settings management
+- Wintun-based TUN interface (optional build tag)
+- Fast and secure peer-to-peer communication over QUIC
+- Token-based authentication (controller/agent)
+- Chat, network settings, membership, and more
+- UI available in Turkish and English
+
+### Quick Start
+1. **Controller (VPS or main machine):**
+	- `go build -o bin/goconnectcontroller.exe ./cmd/goconnectcontroller`
+	- Start the controller, note the contents of `secrets/controller_token.txt`.
+2. **Clients (Agent):**
+	- `go build -o bin/goconnect-service.exe ./cmd/goconnectservice`
+	- Join the network via Web UI by entering Controller URL and Token.
+3. **Web UI:**
+	- Manage and monitor everything at http://127.0.0.1:2537
+
+### Architecture & Main Components
+- **cmd/goconnectservice**: Main agent/service binary (install on every client)
+- **cmd/goconnectcontroller**: Controller binary (for central management, install on VPS or main machine)
+- **internal/**: All backend and network management code
+- **webui/**: Modern Web UI and i18n files
+- **build/scripts/**: Windows service install scripts
+- **stubs/**: Offline stub for kardianos/service (Windows service integration)
+
+### Security
+- All controller-agent communication requires a bearer token
+- CSRF protection and local-only HTTP API
+- Secrets are encrypted with Windows DPAPI
+
+### Supported Platforms
+- **Windows only** (No Linux/Mac support)
+
+### Contribution & Support
+- Use GitHub Issues and Pull Requests for bug reports and contributions.
+- Contact [orhaniscoding](https://github.com/orhaniscoding) for further support.
+
+### License
+Licensed under the MIT License. See [LICENSE](LICENSE) for details.
+
+### FAQ
+- **Are controller and agent the same binary?** No, there are two binaries: `goconnectcontroller.exe` (controller) and `goconnect-service.exe` (agent).
+- **How do I open the Web UI?** The Web UI is automatically available at http://127.0.0.1:2537 when the agent runs.
+- **What if I lose the token?** Check or regenerate `secrets/controller_token.txt` on the controller.
+- **Is there tray support?** No, tray/icon support has been completely removed.
+- **Is there Linux/Mac support?** No, only Windows is supported.
+
+---
 
 ## Directory Structure
 
@@ -21,7 +135,7 @@ GOConnect/
 - `internal/i18n` – English/Turkish strings for service & Web UI
 - `webui/` – Static web UI + i18n bundles (also embedded for single-binary builds)
 - `build/scripts/` – PowerShell install/uninstall helper scripts
-- `stubs/` – Offline stubs for `kardianos/service` (legacy systray removed)
+- `stubs/` – Offline stubs for `kardianos/service`
 
 ## Security & Defaults
 - HTTP binds to `127.0.0.1:2537`

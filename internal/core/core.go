@@ -10,6 +10,56 @@ import (
 	gtun "goconnect/internal/tun"
 )
 
+// Transport interface for forwarding loop
+type Transport interface {
+	SendPacket([]byte) error
+	RecvPacket() ([]byte, error)
+}
+
+// Forwarding loop: TUN <-> Transport (stubbed)
+func (s *State) StartForwardingLoop(tx Transport) {
+	go func() {
+		tun := s.TunDevice()
+		if tun == nil {
+			return
+		}
+		buf := make([]byte, 65535)
+		for {
+			// Read from TUN
+			n, err := tun.Read(buf)
+			if err != nil {
+				continue
+			}
+			pkt := make([]byte, n)
+			copy(pkt, buf[:n])
+			// Send to transport (stub)
+			_ = tx.SendPacket(pkt)
+		}
+	}()
+
+	go func() {
+		tun := s.TunDevice()
+		if tun == nil {
+			return
+		}
+		for {
+			// Receive from transport (stub)
+			pkt, err := tx.RecvPacket()
+			if err != nil {
+				continue
+			}
+			_, _ = tun.Write(pkt)
+		}
+	}()
+}
+
+// TunDevice getter: TUN arayüzüne dışarıdan erişim
+func (s *State) TunDevice() gtun.Device {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.tunDev
+}
+
 type ServiceState string
 
 const (
@@ -185,7 +235,7 @@ func (s *State) TunError() string {
 	return s.tunErr
 }
 
-// Tray status tracking removed.
+// (Tray functionality removed from project.)
 
 func hasJoinedNetwork(n []Network) bool {
 	for _, net := range n {

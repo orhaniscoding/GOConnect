@@ -8,4 +8,7 @@ type Device interface {
 	Down() error
 	IsUp() bool
 	LoopbackTest(ctx context.Context) error
+	SetAddress(ip string) error
+	Read([]byte) (int, error)
+	Write([]byte) (int, error)
 }

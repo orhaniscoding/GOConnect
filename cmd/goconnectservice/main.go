@@ -146,6 +146,9 @@ func (p *program) run() {
 	})
 	log.Println("API initialized.")
 
+	// Start controller sync if ControllerURL is set
+	a.StartControllerSync()
+
 	addr := net.JoinHostPort("127.0.0.1", fmt.Sprintf("%d", cfg.Port))
 	webDir := api.ResolveWebDir()
 	p.srv = a.Serve(addr, webDir)

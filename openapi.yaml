@@ -127,6 +127,48 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Metrics'
+  /api/v1/networks/{networkId}/chat/messages:
+    get:
+      summary: List chat messages (optionally since timestamp)
+      parameters:
+        - in: path
+          name: networkId
+          required: true
+          schema: { type: string }
+        - in: query
+          name: since
+          schema: { type: string, format: date-time }
+      responses:
+        '200': { description: OK }
+    post:
+      summary: Post a chat message
+      parameters:
+        - in: path
+          name: networkId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text: { type: string }
+      responses:
+        '200': { description: Created }
+        '403': { description: Chat disabled }
+        '429': { description: Rate limited }
+  /api/v1/networks/{networkId}/chat/stream:
+    get:
+      summary: Chat stream (SSE)
+      parameters:
+        - in: path
+          name: networkId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Stream opened }
 components:
   schemas:
     NetworkSettings:
@@ -188,3 +230,11 @@ components:
         network_settings_objects: { type: integer }
         member_preferences_objects: { type: integer }
         mtu: { type: integer }
+    ChatMessage:
+      type: object
+      properties:
+        id: { type: string }
+        network_id: { type: string }
+        from: { type: string }
+        text: { type: string }
+        at: { type: string, format: date-time }
