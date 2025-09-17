@@ -69,5 +69,14 @@
   "peers.headerSeen": "Last Seen",
   "mode.p2p": "P2P",
   "mode.relay": "Relay",
-  "mode.none": "N/A"
+  "mode.none": "N/A",
+  "menu.openlogs": "Open Logs",
+  "menu.exit": "Exit",
+  "menu.settings": "Settings",
+  "menu.about": "About",
+  "menu.show": "Show",
+  "menu.hide": "Hide",
+  "menu.tray": "Tray",
+  "menu.trayOnline": "Tray Online",
+  "menu.trayOffline": "Tray Offline"
 }

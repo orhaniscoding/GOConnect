@@ -14,9 +14,9 @@ import (
 	"sync"
 	"time"
 
+	"goconnect/internal"
 	"goconnect/internal/config"
 	"goconnect/internal/core"
-	gi18n "goconnect/internal/i18n"
 	"goconnect/internal/ipam"
 	"goconnect/internal/traymgr"
 	webfs "goconnect/webui"
@@ -162,6 +162,14 @@ func (a *API) wrapPOST(h func(http.ResponseWriter, *http.Request) (int, any)) ht
 	}
 }
 
+func (a *API) getLocalizer() func(string) string {
+	lang := a.cfg.Language
+	if lang == "" {
+		lang = "en"
+	}
+	return internal.NewLocalizer(lang)
+}
+
 func (a *API) handleStatus(w http.ResponseWriter, r *http.Request) (int, any) {
 	ss, tun, ctrl, _, _, _ := a.state.Snapshot()
 	trayOnline, lastSeen := a.state.TrayStatus(time.Now())
@@ -175,7 +183,7 @@ func (a *API) handleStatus(w http.ResponseWriter, r *http.Request) (int, any) {
 		"tray_state":      trayState,
 		"csrf_token":      a.csrfToken,
 		"tray_last_seen":  lastSeen,
-		"i18n":            gi18n.ActiveLanguage(),
+		"language":        a.cfg.Language,
 	}
 }
 
@@ -388,7 +396,7 @@ func (a *API) handleSettings(w http.ResponseWriter, r *http.Request) (int, any) 
 		a.cfg.LogLevel = in.LogLevel
 		if in.Language != "" {
 			a.cfg.Language = strings.ToLower(in.Language)
-			gi18n.SetActiveLanguage(a.cfg.Language)
+			// gi18n.SetActiveLanguage(a.cfg.Language) // i18n kaldırıldı
 		}
 		a.cfg.Autostart = in.Autostart
 		a.cfg.ControllerURL = in.ControllerURL
@@ -435,7 +443,26 @@ func (a *API) handleSettings(w http.ResponseWriter, r *http.Request) (int, any) 
 }
 
 func (a *API) handleDiagRun(w http.ResponseWriter, r *http.Request) (int, any) {
-	return 200, map[string]any{"stun": "ok", "mtu": "ok"}
+	// Gerçek teşhis verileriyle doldurulmuş örnek bir yanıt
+	svcState, _, _, networks, _, settings := a.state.Snapshot()
+	joined := 0
+	for _, n := range networks {
+		if n.Joined {
+			joined++
+		}
+	}
+	result := map[string]any{
+		"tun_ok":          a.state.TunError() == "",
+		"tun_error":       a.state.TunError(),
+		"public_endpoint": a.state.PublicEndpoint(),
+		"networks":        networks,
+		"stun":            "ok", // Geliştirilebilir: Gerçek STUN testi
+		"mtu":             settings.MTU,
+		"joined":          joined,
+		"total":           len(networks),
+		"service_state":   svcState,
+	}
+	return 200, result
 }
 
 func (a *API) handleUpdateCheck(w http.ResponseWriter, r *http.Request) (int, any) {

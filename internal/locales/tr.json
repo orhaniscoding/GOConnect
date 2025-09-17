@@ -1,0 +1,58 @@
+[
+  {
+    "id": "app.title",
+    "translation": "GOConnect"
+  },
+  {
+    "id": "menu.start",
+    "translation": "Başlat"
+  },
+  {
+    "id": "menu.stop",
+    "translation": "Durdur"
+  },
+  {
+    "id": "menu.restart",
+    "translation": "Yeniden Başlat"
+  },
+  {
+    "id": "menu.exit",
+    "translation": "Çıkış"
+  },
+  {
+    "id": "menu.openLogs",
+    "translation": "Logları Aç"
+  },
+  {
+    "id": "menu.openPanel",
+    "translation": "Web Panelini Aç"
+  },
+  {
+    "id": "menu.language.english",
+    "translation": "İngilizce"
+  },
+  {
+    "id": "menu.language.turkish",
+    "translation": "Türkçe"
+  },
+  {
+    "id": "menu.languages",
+    "translation": "Diller"
+  },
+  {
+    "id": "menu.shutdown",
+    "translation": "Servisi Kapat"
+  },
+  {
+    "id": "menu.diagnose",
+    "translation": "Tanıla"
+  },
+  {
+    "id": "menu.networks",
+    "translation": "Ağlar"
+  },
+  {
+    "id": "status.running",
+    "translation": "Çalışıyor"
+  }
+]

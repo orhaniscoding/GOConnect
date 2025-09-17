@@ -1,0 +1,58 @@
+[
+  {
+    "id": "app.title",
+    "translation": "GOConnect"
+  },
+  {
+    "id": "menu.start",
+    "translation": "Start"
+  },
+  {
+    "id": "menu.stop",
+    "translation": "Stop"
+  },
+  {
+    "id": "menu.restart",
+    "translation": "Restart"
+  },
+  {
+    "id": "menu.exit",
+    "translation": "Exit"
+  },
+  {
+    "id": "menu.openLogs",
+    "translation": "Open Logs"
+  },
+  {
+    "id": "menu.openPanel",
+    "translation": "Open Web Panel"
+  },
+  {
+    "id": "menu.language.english",
+    "translation": "English"
+  },
+  {
+    "id": "menu.language.turkish",
+    "translation": "Turkish"
+  },
+  {
+    "id": "menu.languages",
+    "translation": "Languages"
+  },
+  {
+    "id": "menu.shutdown",
+    "translation": "Shutdown Service"
+  },
+  {
+    "id": "menu.diagnose",
+    "translation": "Diagnose"
+  },
+  {
+    "id": "menu.networks",
+    "translation": "Networks"
+  },
+  {
+    "id": "status.running",
+    "translation": "Running"
+  }
+]

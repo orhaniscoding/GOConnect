@@ -69,5 +69,14 @@
   "peers.headerSeen": "Son Görülme",
   "mode.p2p": "P2P",
   "mode.relay": "Aktarıcı",
-  "mode.none": "Yok"
+  "mode.none": "Yok",
+  "menu.openlogs": "Günlükleri Aç",
+  "menu.exit": "Çıkış",
+  "menu.settings": "Ayarlar",
+  "menu.about": "Hakkında",
+  "menu.show": "Göster",
+  "menu.hide": "Gizle",
+  "menu.tray": "Tepsi",
+  "menu.trayOnline": "Tepsi Açık",
+  "menu.trayOffline": "Tepsi Kapalı"
 }

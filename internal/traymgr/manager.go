@@ -60,12 +60,18 @@ func (m *Manager) Stop() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.cmd == nil || m.cmd.Process == nil || m.cmd.ProcessState != nil {
+		if m.logger != nil {
+			m.logger.Printf("tray stop: no running process")
+		}
 		return nil
 	}
 	if m.logger != nil {
 		m.logger.Printf("stopping tray process (pid=%d)", m.cmd.Process.Pid)
 	}
 	err := m.cmd.Process.Kill()
+	if err != nil && m.logger != nil {
+		m.logger.Printf("tray stop error: %v", err)
+	}
 	m.cmd = nil
 	return err
 }
