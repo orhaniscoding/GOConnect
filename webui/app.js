@@ -149,17 +149,19 @@ function updateTrayState(state, lastSeen) {
   const statusKey = state === "online" ? "status.trayOnline" : "status.trayOffline";
   el.textContent = t(statusKey);
   el.className = state === "online" ? "badge running" : "badge stopped";
+  let lastSeenText = "";
   if (lastSeen) {
     try {
       const ts = new Date(lastSeen);
       if (!Number.isNaN(ts.getTime())) {
-        el.title = ts.toLocaleString();
+        lastSeenText = ` (last seen: ${ts.toLocaleString()})`;
       }
     } catch (e) {
-      el.title = "";
+      lastSeenText = "";
     }
-  } else {
-    el.title = "";
+  }
+  if (lastSeenText) {
+    el.textContent += lastSeenText;
   }
 }
 
@@ -346,24 +348,6 @@ function bindActions() {
     } catch (err) {
       console.error("service exit", err);
       alert(`Shutdown failed: ${err.message || err}`);
-    }
-  };
-  document.getElementById("btn-tray-start").onclick = async () => {
-    try {
-      await post("/api/tray/start");
-      await loadStatus();
-    } catch (err) {
-      console.error("tray start", err);
-      alert(`Tray start failed: ${err.message || err}`);
-    }
-  };
-  document.getElementById("btn-tray-stop").onclick = async () => {
-    try {
-      await post("/api/tray/stop");
-      await loadStatus();
-    } catch (err) {
-      console.error("tray stop", err);
-      alert(`Tray stop failed: ${err.message || err}`);
     }
   };
   const form = document.getElementById("settings-form");

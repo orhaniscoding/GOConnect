@@ -83,8 +83,7 @@ func (a *API) Serve(addr string, webDir string) *http.Server {
 	mux.HandleFunc("/api/networks/leave", a.wrapPOST(a.handleNetworksLeave))
 	mux.HandleFunc("/api/peers", a.wrap(a.handlePeers))
 	mux.HandleFunc("/api/logs/stream", a.handleLogsStream)
-	mux.HandleFunc("/api/tray/start", a.wrapPOST(a.handleTrayStart))
-	mux.HandleFunc("/api/tray/stop", a.wrapPOST(a.handleTrayStop))
+	// Tray başlat/durdur endpointleri kaldırıldı. Tray sadece elle açılır/kapanır.
 	mux.HandleFunc("/api/tray/heartbeat", a.wrapPOST(a.handleTrayHeartbeat))
 	mux.HandleFunc("/api/tray/offline", a.wrapPOST(a.handleTrayOffline))
 	mux.HandleFunc("/api/settings", a.wrap(a.handleSettings))
@@ -196,6 +195,10 @@ func (a *API) handleServiceStart(w http.ResponseWriter, r *http.Request) (int, a
 func (a *API) handleServiceStop(w http.ResponseWriter, r *http.Request) (int, any) {
 	a.state.Stop()
 	a.log("service.stop")
+	// Tray process'i de kapat
+	if a.tray != nil {
+		_ = a.tray.Stop()
+	}
 	return 200, map[string]string{"result": "ok"}
 }
 
