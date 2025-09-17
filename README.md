@@ -171,16 +171,3 @@ You can install both binaries and their scripts on the same machine and follow t
 
 ### License
 Licensed under the GPL 3.0 License. See [LICENSE](LICENSE) for details.
-1. GET `/api/v1/networks/n1/settings` → `{ "version":1, ... }`
-
-2. Client modifies fields, sends PUT with body including `"Version":1`.
-
-3. Response → updated object `{ "version":2, ... }`.
-
-4. A second PUT reusing `Version":1` now fails with 409.
-
-
-
-### Effective Policy Logic (Expanded)
-
-The derived policy combines member preferences and network settings:
