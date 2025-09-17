@@ -1,10 +1,6 @@
-param(
-  [string]$ServiceName = "GOConnectService"
-)
-
-Write-Host "Stopping and removing service '$ServiceName'"
-sc.exe stop $ServiceName | Out-Null
-Start-Sleep -Seconds 1
-sc.exe delete $ServiceName | Out-Null
-Write-Host "Service removed."
+$ExePath = Join-Path $PSScriptRoot "..\..\bin\goconnect-service.exe"
+Write-Host "Uninstalling GOConnect service..."
+& $ExePath stop
+& $ExePath uninstall
+Write-Host "Service uninstalled."
 

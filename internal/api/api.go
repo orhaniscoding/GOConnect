@@ -106,23 +106,25 @@ func (a *API) csrfMiddleware(next http.Handler) http.Handler {
 		http.SetCookie(w, &http.Cookie{
 			Name:     "goc_csrf",
 			Value:    a.csrfToken,
-			HttpOnly: true,
+			HttpOnly: true, // Prevent JS access
 			Secure:   r.TLS != nil,
 			Path:     "/",
 			SameSite: http.SameSiteStrictMode,
 		})
+
 		if r.Method != http.MethodGet {
+			// Loopback requests to /api/exit are allowed without CSRF for tray client shutdown.
 			if r.URL.Path == "/api/exit" && isLoopback(r.RemoteAddr) {
 				next.ServeHTTP(w, r)
 				return
 			}
 			tok := r.Header.Get("X-CSRF-Token")
 			if tok == "" {
-				http.Error(w, "missing csrf", http.StatusForbidden)
+				http.Error(w, "missing csrf token", http.StatusForbidden)
 				return
 			}
 			if tok != a.csrfToken {
-				http.Error(w, "invalid csrf", http.StatusForbidden)
+				http.Error(w, "invalid csrf token", http.StatusForbidden)
 				return
 			}
 		}
@@ -246,6 +248,7 @@ func (a *API) handleNetworksJoin(w http.ResponseWriter, r *http.Request) (int, a
 		ID          string `json:"id"`
 		Name        string `json:"name"`
 		Description string `json:"description"`
+		JoinSecret  string `json:"join_secret"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		return 400, map[string]string{"error": "bad_json"}
@@ -254,6 +257,9 @@ func (a *API) handleNetworksJoin(w http.ResponseWriter, r *http.Request) (int, a
 	if in.ID == "" {
 		return 400, map[string]string{"error": "missing_id"}
 	}
+
+	// In a real implementation, we would validate the JoinSecret here against a
+	// controller or some other authority. For now, we just store it.
 
 	a.cfgMu.Lock()
 	var target *config.Network
@@ -275,6 +281,9 @@ func (a *API) handleNetworksJoin(w http.ResponseWriter, r *http.Request) (int, a
 	}
 	if in.Description != "" {
 		target.Description = in.Description
+	}
+	if in.JoinSecret != "" {
+		target.JoinSecret = in.JoinSecret
 	}
 	if target.Address == "" {
 		target.Address = a.ipam.AddressFor(target.ID)

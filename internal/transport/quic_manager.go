@@ -3,18 +3,12 @@ package transport
 import (
 	"context"
 	"crypto/rand"
-	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/binary"
 	"encoding/pem"
-	"errors"
 	"fmt"
-	"math/big"
 	"net"
-	"os"
-	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -39,7 +33,7 @@ type Manager struct {
 	ln              *quic.Listener
 	stopCh          chan struct{}
 	identity        tls.Certificate
-	trustedPool     *x509.CertPool
+	caCert          *x509.Certificate
 	clientTLSConfig *tls.Config
 	serverTLSConfig *tls.Config
 }
@@ -49,30 +43,23 @@ const (
 	dialMaxBackoff     = 30 * time.Second
 	maxDialFailures    = 20
 	tlsServerName      = "goconnect"
-	identityCertName   = "quic_identity_cert.pem"
-	identityKeyName    = "quic_identity_key.pem"
 )
 
-func NewManager(udpAddr string, stunServers []string, secretsDir string, trustedPeerCerts []string) (*Manager, error) {
+func NewManager(udpAddr string, stunServers []string, _ string, _ []string) (*Manager, error) {
 	servers := append([]string(nil), stunServers...)
-	identity, err := loadOrCreateIdentity(secretsDir)
+	identity, ca, err := loadOrCreateManagerIdentity()
 	if err != nil {
 		return nil, err
 	}
-	pool, err := loadTrustedPool(secretsDir, trustedPeerCerts, identity)
-	if err != nil {
-		return nil, err
-	}
-	serverTLS, clientTLS, err := newTLSConfigs(identity, pool)
-	if err != nil {
-		return nil, err
-	}
+
+	serverTLS, clientTLS := newTLSConfigs(identity, ca)
+
 	return &Manager{
 		addr:            udpAddr,
 		stunServers:     servers,
 		peers:           map[string]*PeerInfo{},
 		identity:        identity,
-		trustedPool:     pool,
+		caCert:          ca,
 		clientTLSConfig: clientTLS,
 		serverTLSConfig: serverTLS,
 	}, nil
@@ -309,6 +296,65 @@ func (m *Manager) SetNATUpdateFn(fn func(string)) {
 	}
 }
 
+func (m *Manager) GetIdentity() tls.Certificate {
+	return m.identity
+}
+
+func loadOrCreateManagerIdentity() (tls.Certificate, *x509.Certificate, error) {
+	caCert, caKey, err := loadOrCreateCA()
+	if err != nil {
+		return tls.Certificate{}, nil, fmt.Errorf("failed to load/create CA: %w", err)
+	}
+
+	hostCert, hostKey, err := loadOrCreateHostCert(caCert, caKey)
+	if err != nil {
+		return tls.Certificate{}, nil, fmt.Errorf("failed to load/create host certificate: %w", err)
+	}
+
+	// PEM encode host cert
+	hostCertPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: hostCert.Raw})
+
+	// PEM encode host key
+	privBytes, err := x509.MarshalECPrivateKey(hostKey)
+	if err != nil {
+		return tls.Certificate{}, nil, fmt.Errorf("failed to marshal host key: %w", err)
+	}
+	hostKeyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privBytes})
+
+	tlsCert, err := tls.X509KeyPair(hostCertPEM, hostKeyPEM)
+	if err != nil {
+		return tls.Certificate{}, nil, fmt.Errorf("failed to create tls key pair: %w", err)
+	}
+	tlsCert.Leaf = hostCert
+
+	return tlsCert, caCert, nil
+}
+
+func newTLSConfigs(identity tls.Certificate, caCert *x509.Certificate) (*tls.Config, *tls.Config) {
+	certPool := x509.NewCertPool()
+	certPool.AddCert(caCert)
+
+	serverTLSConfig := &tls.Config{
+		Certificates: []tls.Certificate{identity},
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+		ClientCAs:    certPool,
+		NextProtos:   []string{tlsServerName},
+	}
+
+	clientTLSConfig := &tls.Config{
+		Certificates: []tls.Certificate{identity},
+		RootCAs:      certPool,
+		NextProtos:   []string{tlsServerName},
+		ServerName:   tlsServerName, // SNI
+	}
+
+	return serverTLSConfig, clientTLSConfig
+}
+
+func (m *Manager) OnNATInfo(f func(s string)) {
+	m.natUpdate = f
+}
+
 func queryPublicEndpoint(server string) (string, error) {
 	conn, err := net.DialTimeout("udp", server, 3*time.Second)
 	if err != nil {
@@ -400,104 +446,4 @@ func equalBytes(a, b []byte) bool {
 		}
 	}
 	return true
-}
-
-func newTLSConfigs(identity tls.Certificate, pool *x509.CertPool) (*tls.Config, *tls.Config, error) {
-	if len(identity.Certificate) == 0 {
-		return nil, nil, errors.New("missing identity certificate")
-	}
-	server := &tls.Config{
-		Certificates: []tls.Certificate{identity},
-		ClientAuth:   tls.RequireAndVerifyClientCert,
-		ClientCAs:    pool,
-		MinVersion:   tls.VersionTLS13,
-		NextProtos:   []string{"goc/1"},
-	}
-	client := &tls.Config{
-		Certificates: []tls.Certificate{identity},
-		RootCAs:      pool,
-		MinVersion:   tls.VersionTLS13,
-		NextProtos:   []string{"goc/1"},
-		ServerName:   tlsServerName,
-	}
-	return server, client, nil
-}
-
-func loadOrCreateIdentity(secretsDir string) (tls.Certificate, error) {
-	if err := os.MkdirAll(secretsDir, 0o755); err != nil {
-		return tls.Certificate{}, err
-	}
-	certPath := filepath.Join(secretsDir, identityCertName)
-	keyPath := filepath.Join(secretsDir, identityKeyName)
-	if _, err := os.Stat(certPath); err == nil {
-		return tls.LoadX509KeyPair(certPath, keyPath)
-	}
-	cert, key, err := generateIdentity()
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-	if err := os.WriteFile(certPath, cert, 0o600); err != nil {
-		return tls.Certificate{}, err
-	}
-	if err := os.WriteFile(keyPath, key, 0o600); err != nil {
-		return tls.Certificate{}, err
-	}
-	return tls.LoadX509KeyPair(certPath, keyPath)
-}
-
-func loadTrustedPool(baseDir string, entries []string, identity tls.Certificate) (*x509.CertPool, error) {
-	pool := x509.NewCertPool()
-	if len(identity.Certificate) > 0 {
-		if parsed, err := x509.ParseCertificate(identity.Certificate[0]); err == nil {
-			pool.AddCert(parsed)
-		}
-	}
-	for _, entry := range entries {
-		entry = strings.TrimSpace(entry)
-		if entry == "" {
-			continue
-		}
-		var data []byte
-		if strings.Contains(entry, "-----BEGIN") {
-			data = []byte(entry)
-		} else {
-			path := entry
-			if !filepath.IsAbs(path) {
-				path = filepath.Join(baseDir, path)
-			}
-			b, err := os.ReadFile(path)
-			if err != nil {
-				return nil, err
-			}
-			data = b
-		}
-		if ok := pool.AppendCertsFromPEM(data); !ok {
-			return nil, fmt.Errorf("unable to parse trusted peer certificate")
-		}
-	}
-	return pool, nil
-}
-
-func generateIdentity() ([]byte, []byte, error) {
-	tmpl := &x509.Certificate{
-		SerialNumber:          big.NewInt(time.Now().UnixNano()),
-		NotBefore:             time.Now().Add(-time.Hour),
-		NotAfter:              time.Now().Add(365 * 24 * time.Hour),
-		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
-		BasicConstraintsValid: true,
-		IsCA:                  false,
-		DNSNames:              []string{tlsServerName},
-	}
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		return nil, nil, err
-	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
-	if err != nil {
-		return nil, nil, err
-	}
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
-	return certPEM, keyPEM, nil
 }

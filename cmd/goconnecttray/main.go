@@ -181,22 +181,27 @@ func apiPutJSON(path, body string) error {
 
 func apiWithCSRF(method, path, ctype string, body *strings.Reader) error {
 	client := &http.Client{Timeout: 5 * time.Second}
+	// Get status to fetch the latest CSRF token from the JSON body
 	resp, err := client.Get("http://127.0.0.1:2537/api/status")
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get status for csrf token: %w", err)
 	}
 	defer resp.Body.Close()
+
 	var payload struct {
 		Token string `json:"csrf_token"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return err
+		return fmt.Errorf("failed to decode csrf token from status: %w", err)
 	}
+	if payload.Token == "" {
+		return fmt.Errorf("did not receive csrf token from status endpoint")
+	}
+
 	req, _ := http.NewRequest(method, "http://127.0.0.1:2537"+path, body)
 	req.Header.Set("Content-Type", ctype)
-	if payload.Token != "" {
-		req.Header.Set("X-CSRF-Token", payload.Token)
-	}
+	req.Header.Set("X-CSRF-Token", payload.Token)
+
 	resp2, err := client.Do(req)
 	if err != nil {
 		return err

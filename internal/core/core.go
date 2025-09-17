@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -12,8 +13,10 @@ import (
 type ServiceState string
 
 const (
-	StateStopped ServiceState = "stopped"
-	StateRunning ServiceState = "running"
+	StateStopped  ServiceState = "stopped"
+	StateRunning  ServiceState = "running"
+	StateDegraded ServiceState = "degraded"
+	StateError    ServiceState = "error"
 )
 
 type Network struct {
@@ -87,7 +90,12 @@ func (s *State) SetTunDevice(d gtun.Device) {
 
 func (s *State) Start() {
 	s.mu.Lock()
-	s.serviceState = StateRunning
+	if s.serviceState == StateRunning {
+		s.mu.Unlock()
+		return
+	}
+	s.serviceState = StateRunning // Optimistic state
+	s.tunErr = ""
 	dev := s.tunDev
 	joined := hasJoinedNetwork(s.networks)
 	s.mu.Unlock()
@@ -98,21 +106,24 @@ func (s *State) Start() {
 		if err := dev.Up(); err != nil {
 			tunErr = err
 		} else {
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			tunErr = dev.LoopbackTest(ctx)
-			cancel()
-			tunUp = tunErr == nil && dev.IsUp()
+			tunUp = true
+			if joined {
+				// Give the interface a moment to be ready
+				time.Sleep(100 * time.Millisecond)
+				if err := dev.LoopbackTest(context.Background()); err != nil {
+					tunErr = fmt.Errorf("loopback test failed: %w", err)
+				}
+			}
 		}
 	} else {
-		tunErr = errors.New("no TUN device configured")
+		tunErr = errors.New("device not available")
 	}
 
 	s.mu.Lock()
 	s.tunUp = tunUp
 	if tunErr != nil {
 		s.tunErr = tunErr.Error()
-	} else {
-		s.tunErr = ""
+		s.serviceState = StateDegraded // Downgrade state on error
 	}
 	s.controllerUp = tunUp && joined
 	s.mu.Unlock()

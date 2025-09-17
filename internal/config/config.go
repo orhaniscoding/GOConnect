@@ -16,6 +16,7 @@ type Network struct {
 	Description string `yaml:"description"`
 	Joined      bool   `yaml:"joined"`
 	Address     string `yaml:"address"`
+	JoinSecret  string `yaml:"join_secret,omitempty"`
 }
 
 type Config struct {
@@ -58,6 +59,7 @@ func Default(language string) *Config {
 func ProgramDataBase() string {
 	pd := os.Getenv("ProgramData")
 	if pd == "" {
+		// Fallback for non-Windows or unusual environments
 		pd = `C:\\ProgramData`
 	}
 	return filepath.Join(pd, "GOConnect")

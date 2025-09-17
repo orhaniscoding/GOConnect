@@ -114,6 +114,9 @@ function setBadge(id, state) {
   const text = I18N[key] ? t(key) : t(state);
   el.textContent = text || state;
   el.className = `badge ${state || "unknown"}`;
+  if (state === 'degraded' || state === 'error') {
+    el.classList.add('error');
+  }
 }
 
 function updatePublicEndpoint(value) {
@@ -407,6 +410,7 @@ function bindActions() {
         id: document.getElementById("network-id").value.trim(),
         name: document.getElementById("network-name").value.trim(),
         description: document.getElementById("network-description").value.trim(),
+        join_secret: document.getElementById("network-secret").value.trim(),
       };
       if (!payload.id) {
         return;
@@ -457,11 +461,6 @@ function connectSSE() {
     logEl.textContent += `${line}\n`;
     logEl.scrollTop = logEl.scrollHeight;
   };
-}
-
-function getCookie(name) {
-  const m = document.cookie.match(new RegExp(`(^| )${name}=([^;]+)`));
-  if (m) return m[2];
 }
 
 document.addEventListener("DOMContentLoaded", init);
