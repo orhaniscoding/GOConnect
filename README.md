@@ -8,83 +8,260 @@
 
 ---
 
+
 ## 🇹🇷 Türkçe Açıklama
 
-**GOConnect**; Windows için geliştirilmiş, merkezi controller destekli, modern ve güvenli bir overlay ağ (VPN) çözümüdür. ZeroTier/Tailscale esintili, kolay kurulum ve merkezi yönetim sunar. Tüm istemciler ve controller tek binary ile çalışır, Web UI ile kolayca yönetilir.
+---
 
-### Özellikler
-- Merkezi controller ile birden fazla cihazı (VPS, masaüstü, laptop) aynı ağa kolayca dahil etme
-- Modern Web UI (http://127.0.0.1:2537) ile ağ, sohbet ve ayar yönetimi
-- Wintun tabanlı TUN arayüzü (isteğe bağlı build tag)
-- QUIC tabanlı hızlı ve güvenli peer-to-peer iletişim
-- Token tabanlı kimlik doğrulama (controller/agent arası)
-- Sohbet, ağ ayarları, üyelik ve daha fazlası
-- Türkçe ve İngilizce arayüz desteği
+### 🚀 Sadece Controller Kuracak Kullanıcılar İçin Hızlı Kurulum
 
-### Hızlı Kurulum
-1. **Controller (VPS veya ana makine):**
-	- `go build -o bin/goconnectcontroller.exe ./cmd/goconnectcontroller`
-	- Controller'ı başlatın, `secrets/controller_token.txt` içeriğini not edin.
-2. **İstemciler (Agent):**
-	- `go build -o bin/goconnect-service.exe ./cmd/goconnectservice`
-	- Web UI'dan Controller URL ve Token girerek ağa katılın.
-3. **Web UI:**
-	- http://127.0.0.1:2537 adresinden tüm yönetim ve izleme işlemlerini yapabilirsiniz.
+**Gerekenler:**
+- Hiçbir ek program veya kütüphane gerekmez. Sadece Windows 10/11 veya Windows Server yeterli.
+- PowerShell zaten yüklü gelir.
 
-### Mimarî ve Temel Bileşenler
-- **cmd/goconnectservice**: Ana agent/servis binary'si (her istemciye kurulur)
-- **cmd/goconnectcontroller**: Controller binary'si (merkezi yönetim için VPS veya ana makineye kurulur)
-- **internal/**: Tüm backend ve ağ yönetim kodları
-- **webui/**: Modern Web UI ve i18n dosyaları
-- **build/scripts/**: Windows servis kurulum scriptleri
-- **stubs/**: Kardianos/service için offline stub (Windows servis entegrasyonu)
+**Gerekli Dosyalar:**
+- `goconnectcontroller.exe` (veya `bin/goconnectcontroller.exe`)
+- `build/scripts/install-service-controller.ps1`
+- `build/scripts/uninstall-service-controller.ps1`
 
-### Güvenlik
-- Tüm controller-agent iletişimi için bearer token zorunlu
-- CSRF koruması ve local-only HTTP API
-- Windows DPAPI ile gizli anahtarlar şifrelenir
+# GOConnect
 
-### Desteklenen Platformlar
-- **Sadece Windows** (Linux/Mac desteği yoktur)
+![GitHub release (latest by date)](https://img.shields.io/github/v/release/orhaniscoding/GOConnect)
+![Platform](https://img.shields.io/badge/platform-Windows-blue)
 
-### Katkı ve Destek
-- Sorun bildirimi ve katkı için GitHub Issues ve Pull Request'leri kullanabilirsiniz.
-- [orhaniscoding](https://github.com/orhaniscoding) ile iletişime geçebilirsiniz.
+---
 
-### Lisans
-MIT Lisansı ile lisanslanmıştır. Ayrıntılar için [LICENSE](LICENSE) dosyasına bakınız.
+## Genel Bakış
 
-### Sıkça Sorulanlar
-- **Controller ve agent aynı binary mi?** Hayır, `goconnectcontroller.exe` (controller) ve `goconnect-service.exe` (agent) olarak iki ayrı binary vardır.
-- **Web UI nasıl açılır?** Her agent çalıştığında otomatik olarak http://127.0.0.1:2537 adresinde Web UI başlar.
+GOConnect, Windows için geliştirilmiş, merkezi controller destekli, modern ve güvenli bir overlay ağ (VPN) çözümüdür. ZeroTier/Tailscale esintili, kolay kurulum ve merkezi yönetim sunar. Tüm istemciler (agent) ve controller ayrı binary olarak çalışır, Web UI ile kolayca yönetilir.
+
+---
+
+## Desteklenen Platformlar ve Gereksinimler
+
+- **Sadece Windows 10/11 veya Windows Server**
+- PowerShell yüklü olarak gelir, ek bir program gerekmez
+- .NET, Go veya başka bir ek yazılım gerekmez (kullanıcı için)
+
+---
+
+## Dosya ve Dizin Yapısı
+
+- `goconnectcontroller.exe` — Controller binary'si (merkezi yönetim için)
+- `goconnect-service.exe` — Agent binary'si (istemci cihazlar için)
+- `build/scripts/install-service-controller.ps1` — Controller servisini kurar
+- `build/scripts/uninstall-service-controller.ps1` — Controller servisini kaldırır
+- `build/scripts/install-service-agent.ps1` — Agent servisini kurar
+- `build/scripts/uninstall-service-agent.ps1` — Agent servisini kaldırır
+- `secrets/controller_token.txt` — Controller token dosyası (otomatik oluşur)
+- `webui/` — Web arayüzü dosyaları (gömülü gelir)
+- `internal/` — Backend ve ağ yönetim kodları
+
+---
+
+## Kullanım Senaryoları ve Kurulum Rehberi
+
+### 1. Sadece Controller Kurmak İsteyenler İçin (Sunucu/VPS)
+
+**Gereken Dosyalar:**
+- `goconnectcontroller.exe`
+- `build/scripts/install-service-controller.ps1`
+- `build/scripts/uninstall-service-controller.ps1`
+- (İlk kurulumda) `secrets/controller_token.txt`
+
+**Kurulum Adımları:**
+1. Yukarıdaki dosyaları bir klasöre kopyalayın (ör: `C:\GOConnect`).
+2. PowerShell’i yönetici olarak açın.
+3. Komutları çalıştırın:
+   ```powershell
+   cd C:\GOConnect\build\scripts
+   ./install-service-controller.ps1
+   ```
+4. Servis otomatik başlar. Web arayüzüne bağlanmak için: http://localhost:2537
+5. Token’ı `secrets/controller_token.txt` dosyasından alıp istemcilerde kullanabilirsiniz.
+
+**Not:** Sadece controller kurmak için agent kurmak zorunda değilsiniz.
+
+---
+
+### 2. Sadece Agent Kurmak İsteyenler İçin (İstemci Cihazlar)
+
+**Gereken Dosyalar:**
+- `goconnect-service.exe`
+- `build/scripts/install-service-agent.ps1`
+- `build/scripts/uninstall-service-agent.ps1`
+
+**Kurulum Adımları:**
+1. Dosyaları bir klasöre kopyalayın (ör: `C:\GOConnect`).
+2. PowerShell’i yönetici olarak açın.
+3. Komutları çalıştırın:
+   ```powershell
+   cd C:\GOConnect\build\scripts
+   ./install-service-agent.ps1
+   ```
+4. Servis otomatik başlar. Web arayüzüne bağlanmak için: http://localhost:2537
+5. Controller’dan aldığınız token ve adres ile Web UI’dan ağa katılın.
+
+---
+
+### 3. Hem Controller Hem Agent Kurmak (Test veya Geliştirici)
+
+Her iki binary ve ilgili scriptleri aynı makinede kurup yukarıdaki adımları uygulayabilirsiniz. Her servis kendi başına çalışır.
+
+---
+
+## Web UI ve Token Yönetimi
+
+- Web arayüzü: http://localhost:2537
+- Controller token’ı: `secrets/controller_token.txt` dosyasında bulunur
+- Agent’lar ağa katılırken bu token’ı kullanır
+
+---
+
+## Sıkça Sorulanlar (FAQ)
+
+- **Sadece controller kurarsam agent kurmak zorunda mıyım?** Hayır, sadece controller kurmak yeterlidir. Agent sadece istemci cihazlara kurulmalıdır.
+- **Controller ve agent aynı binary mi?** Hayır, iki ayrı binary vardır.
+- **Web UI nasıl açılır?** Her agent veya controller servisi çalıştığında http://localhost:2537 adresinde Web UI başlar.
 - **Token kaybolursa ne yapmalıyım?** Controller üzerinde `secrets/controller_token.txt` dosyasını tekrar kontrol edin veya yeni token oluşturun.
 - **Tray desteği var mı?** Hayır, tray/ikon desteği tamamen kaldırıldı.
 - **Linux/Mac desteği var mı?** Hayır, sadece Windows desteklenmektedir.
 
 ---
 
-## 🇬🇧 English Description
+## Geliştiriciler İçin Derleme ve Gelişmiş Kullanım
 
-**GOConnect** is a modern, secure, controller-based overlay network (VPN) solution for Windows. Inspired by ZeroTier/Tailscale, it offers easy setup and centralized management. All clients and the controller run as a single binary, managed via a modern Web UI.
+- Go 1.22+ gereklidir (sadece geliştirme için)
+- Derleme: `go build -o bin/goconnectcontroller.exe ./cmd/goconnectcontroller`
+- Derleme: `go build -o bin/goconnect-service.exe ./cmd/goconnectservice`
+- Web UI ve backend kodları gömülü gelir, ekstra işlem gerekmez
 
-### Features
-- Central controller: easily connect multiple devices (VPS, desktop, laptop) to the same network
-- Modern Web UI (http://127.0.0.1:2537) for network, chat, and settings management
-- Wintun-based TUN interface (optional build tag)
-- Fast and secure peer-to-peer communication over QUIC
-- Token-based authentication (controller/agent)
-- Chat, network settings, membership, and more
-- UI available in Turkish and English
+---
 
-### Quick Start
-1. **Controller (VPS or main machine):**
-	- `go build -o bin/goconnectcontroller.exe ./cmd/goconnectcontroller`
-	- Start the controller, note the contents of `secrets/controller_token.txt`.
-2. **Clients (Agent):**
-	- `go build -o bin/goconnect-service.exe ./cmd/goconnectservice`
-	- Join the network via Web UI by entering Controller URL and Token.
-3. **Web UI:**
-	- Manage and monitor everything at http://127.0.0.1:2537
+## Lisans
+
+GPL 3.0 ile lisanslanmıştır. Ayrıntılar için [LICENSE](LICENSE) dosyasına bakınız.
+
+---
+
+
+## English Guide
+
+---
+
+## Overview
+
+GOConnect is a modern, secure, controller-based overlay network (VPN) solution for Windows. Inspired by ZeroTier/Tailscale, it offers easy setup and centralized management. Controller and agent are separate binaries. Everything is managed via a modern Web UI.
+
+---
+
+## Supported Platforms & Requirements
+
+- **Windows 10/11 or Windows Server only**
+- PowerShell is included by default, no extra software needed
+- No .NET, Go, or other dependencies required (for end users)
+
+---
+
+## File & Directory Structure
+
+- `goconnectcontroller.exe` — Controller binary (for central management)
+- `goconnect-service.exe` — Agent binary (for client devices)
+- `build/scripts/install-service-controller.ps1` — Installs controller as a service
+- `build/scripts/uninstall-service-controller.ps1` — Uninstalls controller service
+- `build/scripts/install-service-agent.ps1` — Installs agent as a service
+- `build/scripts/uninstall-service-agent.ps1` — Uninstalls agent service
+- `secrets/controller_token.txt` — Controller token file (auto-generated)
+- `webui/` — Web UI files (embedded)
+- `internal/` — Backend and network management code
+
+---
+
+## Usage Scenarios & Installation Guide
+
+### 1. For Controller-Only Users (Server/VPS)
+
+**Required Files:**
+- `goconnectcontroller.exe`
+- `build/scripts/install-service-controller.ps1`
+- `build/scripts/uninstall-service-controller.ps1`
+- (First setup) `secrets/controller_token.txt`
+
+**Installation Steps:**
+1. Copy the above files to a folder (e.g., `C:\GOConnect`).
+2. Open PowerShell as Administrator.
+3. Run:
+   ```powershell
+   cd C:\GOConnect\build\scripts
+   ./install-service-controller.ps1
+   ```
+4. The service will start automatically. Access the web interface at: http://localhost:2537
+5. Get the token from `secrets/controller_token.txt` and use it on clients.
+
+**Note:** You do NOT need to install the agent if you only want to run the controller.
+
+---
+
+### 2. For Agent-Only Users (Client Devices)
+
+**Required Files:**
+- `goconnect-service.exe`
+- `build/scripts/install-service-agent.ps1`
+- `build/scripts/uninstall-service-agent.ps1`
+
+**Installation Steps:**
+1. Copy the files to a folder (e.g., `C:\GOConnect`).
+2. Open PowerShell as Administrator.
+3. Run:
+   ```powershell
+   cd C:\GOConnect\build\scripts
+   ./install-service-agent.ps1
+   ```
+4. The service will start automatically. Access the web interface at: http://localhost:2537
+5. Join the network via Web UI using the controller address and token.
+
+---
+
+### 3. Running Both Controller and Agent (Test or Development)
+
+You can install both binaries and their scripts on the same machine and follow the above steps for each. Each service runs independently.
+
+---
+
+## Web UI & Token Management
+
+- Web UI: http://localhost:2537
+- Controller token: found in `secrets/controller_token.txt`
+- Agents use this token to join the network
+
+---
+
+## Frequently Asked Questions (FAQ)
+
+- **If I only install the controller, do I need the agent?** No, the agent is only for client devices. The controller can run alone.
+- **Are controller and agent the same binary?** No, they are separate binaries.
+- **How do I open the Web UI?** The Web UI is available at http://localhost:2537 whenever the agent or controller service is running.
+- **What if I lose the token?** Check or regenerate `secrets/controller_token.txt` on the controller.
+- **Is there tray support?** No, tray/icon support has been completely removed.
+- **Is there Linux/Mac support?** No, only Windows is supported.
+
+---
+
+## For Developers: Building & Advanced Usage
+
+- Requires Go 1.22+ (for development only)
+- Build controller: `go build -o bin/goconnectcontroller.exe ./cmd/goconnectcontroller`
+- Build agent: `go build -o bin/goconnect-service.exe ./cmd/goconnectservice`
+- Web UI and backend code are embedded, no extra steps needed
+
+---
+
+## License
+
+Licensed under the GPL 3.0 License. See [LICENSE](LICENSE) for details.
+```
+
+---
 
 ### Architecture & Main Components
 - **cmd/goconnectservice**: Main agent/service binary (install on every client)
@@ -107,11 +284,11 @@ MIT Lisansı ile lisanslanmıştır. Ayrıntılar için [LICENSE](LICENSE) dosya
 - Contact [orhaniscoding](https://github.com/orhaniscoding) for further support.
 
 ### License
-Licensed under the MIT License. See [LICENSE](LICENSE) for details.
+Licensed under the GPL 3.0 License. See [LICENSE](LICENSE) for details.
 
 ### FAQ
 - **Are controller and agent the same binary?** No, there are two binaries: `goconnectcontroller.exe` (controller) and `goconnect-service.exe` (agent).
-- **How do I open the Web UI?** The Web UI is automatically available at http://127.0.0.1:2537 when the agent runs.
+- **How do I open the Web UI?** The Web UI is automatically available at http://localhost:2537 when the agent runs.
 - **What if I lose the token?** Check or regenerate `secrets/controller_token.txt` on the controller.
 - **Is there tray support?** No, tray/icon support has been completely removed.
 - **Is there Linux/Mac support?** No, only Windows is supported.
@@ -138,7 +315,7 @@ GOConnect/
 - `stubs/` – Offline stubs for `kardianos/service`
 
 ## Security & Defaults
-- HTTP binds to `127.0.0.1:2537`
+- HTTP binds to `localhost:2537`
 - Basic anti-CSRF: SameSite=Strict cookie `goc_csrf` + `X-CSRF-Token` header for non-GET requests
 - Files under `%ProgramData%\\GOConnect\\{config,logs,secrets}` (config.yaml now persists joined networks + transport defaults)
 - Default config on first run: `port: 2537`, `mtu: 1280`, `log_level: info`, `language: system locale`, `stun_servers: ["stun.l.google.com:19302"]`
@@ -205,7 +382,7 @@ Prerequisites: Go 1.22+ on Windows. (Offline mode uses the included `kardianos/s
 - Build service: `go build -o bin/GOConnectService.exe ./cmd/goconnectservice`
 - Run service (dev, foreground): `go run ./cmd/goconnectservice`
 - Optional (Wintun): install the Wintun driver + DLL, then `go run -tags=wintun ./cmd/goconnectservice`
-- Open Web UI: http://127.0.0.1:2537
+- Open Web UI: http://localhost:2537
 
 Service install (example, admin PowerShell):
 - Install: `powershell -ExecutionPolicy Bypass -File build\scripts\install-service.ps1 -ExePath "C:\\path\\to\\GOConnectService.exe"`
