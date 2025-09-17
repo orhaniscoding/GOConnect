@@ -12,21 +12,32 @@ import (
 var assets embed.FS
 
 func main() {
-	// Create an instance of the app structure
 	app := NewApp()
 
-	// Create application with options
+	trayMenu := []*options.TrayMenuItem{
+		options.TrayMenuItem{Label: "Open Dashboard", Click: func(_ *options.TrayMenuItem) { app.OpenDashboard() }},
+		options.TrayMenuItem{Label: "Open Logs", Click: func(_ *options.TrayMenuItem) { app.OpenLogs() }},
+		options.TrayMenuItem{Label: "Copy Public Endpoint", Click: func(_ *options.TrayMenuItem) { app.CopyPublicEndpoint() }},
+		options.TrayMenuItem{Label: "Toggle Language (EN/TR)", Click: func(_ *options.TrayMenuItem) { _ = app.ToggleLanguage() }},
+		options.TrayMenuItem{Label: "About", Click: func(_ *options.TrayMenuItem) {
+			wails.ShowMessage("GOConnect Tray\nby orhaniscoding\nhttps://github.com/orhaniscoding/GOConnect")
+		}},
+		options.TrayMenuItem{Label: "Shutdown", Click: func(_ *options.TrayMenuItem) { app.Shutdown() }},
+	}
+
 	err := wails.Run(&options.App{
 		Title:  "tray-wails",
-		Width:  1024,
-		Height: 768,
+		Width:  400,
+		Height: 300,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
 		OnStartup:        app.startup,
-		Bind: []interface{}{
-			app,
+		Bind:             []interface{}{app},
+		SystemTray: &options.SystemTray{
+			Menu:    trayMenu,
+			Tooltip: "GOConnect by orhaniscoding",
 		},
 	})
 

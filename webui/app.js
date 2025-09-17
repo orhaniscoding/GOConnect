@@ -88,20 +88,20 @@ async function loadStatus() {
     const res = await fetch("/api/status", { credentials: "same-origin" });
     const data = await res.json();
     CSRF = data.csrf_token || CSRF;
-    const previousLang = window._goc_lang || "en";
-    const nextLang = data.i18n || previousLang;
+  const previousLang = window._goc_lang || "en";
+  const nextLang = data.i18n || data.language || previousLang;
     const languageChanged = nextLang !== previousLang;
     window._goc_lang = nextLang;
     // Reload translations when backend language changes.
     if (languageChanged) {
       await loadI18n();
     }
-    setBadge("svc-state", data.service_state);
-    setBadge("tun-state", data.tun_state);
-    setBadge("ctrl-state", data.controller);
-    updatePublicEndpoint(data.public_endpoint);
-    updateTunSelf(data.tun_error);
-    updateTrayState(data.tray_state, data.tray_last_seen);
+  setBadge("svc-state", data.service_state);
+  setBadge("tun-state", data.tun_state);
+  setBadge("ctrl-state", data.controller);
+  updatePublicEndpoint(data.public_endpoint);
+  updateTunSelf(data.tun_error);
+  // Tray state removed
   } catch (err) {
     console.error("status", err);
   }
@@ -143,27 +143,7 @@ function updateTunSelf(err) {
   }
 }
 
-function updateTrayState(state, lastSeen) {
-  const el = document.getElementById("tray-state");
-  if (!el) return;
-  const statusKey = state === "online" ? "status.trayOnline" : "status.trayOffline";
-  el.textContent = t(statusKey);
-  el.className = state === "online" ? "badge running" : "badge stopped";
-  let lastSeenText = "";
-  if (lastSeen) {
-    try {
-      const ts = new Date(lastSeen);
-      if (!Number.isNaN(ts.getTime())) {
-        lastSeenText = ` (last seen: ${ts.toLocaleString()})`;
-      }
-    } catch (e) {
-      lastSeenText = "";
-    }
-  }
-  if (lastSeenText) {
-    el.textContent += lastSeenText;
-  }
-}
+// updateTrayState removed
 
 async function loadNetworks() {
   try {

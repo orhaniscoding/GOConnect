@@ -75,8 +75,6 @@
   "menu.settings": "Settings",
   "menu.about": "About",
   "menu.show": "Show",
-  "menu.hide": "Hide",
-  "menu.tray": "Tray",
-  "menu.trayOnline": "Tray Online",
-  "menu.trayOffline": "Tray Offline"
+  "menu.hide": "Hide"
+  
 }

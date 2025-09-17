@@ -14,11 +14,10 @@ import (
 	"sync"
 	"time"
 
-	"goconnect/internal"
 	"goconnect/internal/config"
 	"goconnect/internal/core"
+	gi18n "goconnect/internal/i18n"
 	"goconnect/internal/ipam"
-	"goconnect/internal/traymgr"
 	webfs "goconnect/webui"
 )
 
@@ -27,7 +26,6 @@ type API struct {
 	cfg       *config.Config
 	cfgMu     sync.Mutex
 	logger    *log.Logger
-	tray      *traymgr.Manager
 	ipam      *ipam.Allocator
 	csrfToken string
 	shutdown  func()
@@ -37,12 +35,11 @@ type API struct {
 	peersFn func() []map[string]any
 }
 
-func New(state *core.State, cfg *config.Config, logger *log.Logger, tray *traymgr.Manager, shutdown func()) *API {
+func New(state *core.State, cfg *config.Config, logger *log.Logger, shutdown func()) *API {
 	a := &API{
 		state:     state,
 		cfg:       cfg,
 		logger:    logger,
-		tray:      tray,
 		ipam:      ipam.New(),
 		csrfToken: randomToken(),
 		shutdown:  shutdown,
@@ -84,8 +81,7 @@ func (a *API) Serve(addr string, webDir string) *http.Server {
 	mux.HandleFunc("/api/peers", a.wrap(a.handlePeers))
 	mux.HandleFunc("/api/logs/stream", a.handleLogsStream)
 	// Tray başlat/durdur endpointleri kaldırıldı. Tray sadece elle açılır/kapanır.
-	mux.HandleFunc("/api/tray/heartbeat", a.wrapPOST(a.handleTrayHeartbeat))
-	mux.HandleFunc("/api/tray/offline", a.wrapPOST(a.handleTrayOffline))
+	// Legacy tray endpoints removed; heartbeat endpoints not required for Wails tray.
 	mux.HandleFunc("/api/settings", a.wrap(a.handleSettings))
 	mux.HandleFunc("/api/diag/run", a.wrapPOST(a.handleDiagRun))
 	mux.HandleFunc("/api/update/check", a.wrapPOST(a.handleUpdateCheck))
@@ -161,28 +157,16 @@ func (a *API) wrapPOST(h func(http.ResponseWriter, *http.Request) (int, any)) ht
 	}
 }
 
-func (a *API) getLocalizer() func(string) string {
-	lang := a.cfg.Language
-	if lang == "" {
-		lang = "en"
-	}
-	return internal.NewLocalizer(lang)
-}
-
 func (a *API) handleStatus(w http.ResponseWriter, r *http.Request) (int, any) {
 	ss, tun, ctrl, _, _, _ := a.state.Snapshot()
-	trayOnline, lastSeen := a.state.TrayStatus(time.Now())
-	trayState := map[bool]string{true: "online", false: "offline"}[trayOnline]
 	return 200, map[string]any{
 		"service_state":   string(ss),
 		"tun_state":       map[bool]string{true: "up", false: "down"}[tun],
 		"tun_error":       a.state.TunError(),
 		"controller":      map[bool]string{true: "connected", false: "disconnected"}[ctrl],
 		"public_endpoint": a.state.PublicEndpoint(),
-		"tray_state":      trayState,
 		"csrf_token":      a.csrfToken,
-		"tray_last_seen":  lastSeen,
-		"language":        a.cfg.Language,
+		"i18n":            a.cfg.Language, // frontend watches this key for language changes
 	}
 }
 
@@ -195,54 +179,12 @@ func (a *API) handleServiceStart(w http.ResponseWriter, r *http.Request) (int, a
 func (a *API) handleServiceStop(w http.ResponseWriter, r *http.Request) (int, any) {
 	a.state.Stop()
 	a.log("service.stop")
-	// Tray process'i de kapat
-	if a.tray != nil {
-		_ = a.tray.Stop()
-	}
 	return 200, map[string]string{"result": "ok"}
 }
 
 func (a *API) handleServiceRestart(w http.ResponseWriter, r *http.Request) (int, any) {
 	a.state.Restart()
 	a.log("service.restart")
-	return 200, map[string]string{"result": "ok"}
-}
-
-func (a *API) handleTrayStart(w http.ResponseWriter, r *http.Request) (int, any) {
-	if a.tray == nil {
-		return 500, map[string]string{"error": "tray_manager_unavailable"}
-	}
-	if err := a.tray.Start(); err != nil {
-		if a.logger != nil {
-			a.logger.Printf("tray start error: %v", err)
-		}
-		return 500, map[string]string{"error": "tray_start_failed"}
-	}
-	a.state.RecordTrayHeartbeat()
-	return 200, map[string]string{"result": "ok"}
-}
-
-func (a *API) handleTrayStop(w http.ResponseWriter, r *http.Request) (int, any) {
-	if a.tray == nil {
-		return 500, map[string]string{"error": "tray_manager_unavailable"}
-	}
-	if err := a.tray.Stop(); err != nil {
-		if a.logger != nil {
-			a.logger.Printf("tray stop error: %v", err)
-		}
-		return 500, map[string]string{"error": "tray_stop_failed"}
-	}
-	a.state.SetTrayOffline()
-	return 200, map[string]string{"result": "ok"}
-}
-
-func (a *API) handleTrayHeartbeat(w http.ResponseWriter, r *http.Request) (int, any) {
-	a.state.RecordTrayHeartbeat()
-	return 200, map[string]string{"result": "ok"}
-}
-
-func (a *API) handleTrayOffline(w http.ResponseWriter, r *http.Request) (int, any) {
-	a.state.SetTrayOffline()
 	return 200, map[string]string{"result": "ok"}
 }
 
@@ -399,7 +341,7 @@ func (a *API) handleSettings(w http.ResponseWriter, r *http.Request) (int, any) 
 		a.cfg.LogLevel = in.LogLevel
 		if in.Language != "" {
 			a.cfg.Language = strings.ToLower(in.Language)
-			// gi18n.SetActiveLanguage(a.cfg.Language) // i18n kaldırıldı
+			gi18n.SetActiveLanguage(a.cfg.Language)
 		}
 		a.cfg.Autostart = in.Autostart
 		a.cfg.ControllerURL = in.ControllerURL

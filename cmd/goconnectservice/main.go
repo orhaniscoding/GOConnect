@@ -9,7 +9,6 @@ import (
 	gi18n "goconnect/internal/i18n"
 	golog "goconnect/internal/logging"
 	gtx "goconnect/internal/transport"
-	"goconnect/internal/traymgr"
 	gtun "goconnect/internal/tun"
 	"log"
 	"net"
@@ -25,7 +24,6 @@ var logger service.Logger
 type program struct {
 	cancel context.CancelFunc
 	srv    *http.Server
-	tray   *traymgr.Manager
 	tx     *gtx.Manager
 }
 
@@ -107,9 +105,7 @@ func (p *program) run() {
 	gi18n.SetActiveLanguage(cfg.Language)
 	log.Println("i18n resources loaded.")
 
-	trayBinary := filepath.Join(rootDir, "bin", "goconnect-tray.exe")
-	p.tray = traymgr.New(filepath.Join(rootDir, "bin"), trayBinary, fileLogger)
-	log.Println("Tray manager initialized.")
+	// Legacy separate tray manager removed; Wails tray runs independently now.
 
 	st := core.NewState(core.Settings{
 		Port:             cfg.Port,
@@ -128,7 +124,7 @@ func (p *program) run() {
 	st.Start()
 	log.Println("Core state initialized and started.")
 
-	a := api.New(st, cfg, fileLogger, p.tray, func() {
+	a := api.New(st, cfg, fileLogger, func() {
 		if p.cancel != nil {
 			p.cancel()
 		}
@@ -164,15 +160,6 @@ func (p *program) run() {
 		}
 	}()
 
-	if p.tray != nil {
-		if err := p.tray.Start(); err != nil {
-			log.Printf("Tray start error: %v", err)
-		} else {
-			st.RecordTrayHeartbeat()
-			log.Println("Tray started successfully.")
-		}
-	}
-
 	manager, err := gtx.NewManager(fmt.Sprintf(":%d", cfg.UDPPort), cfg.StunServers, secretsDir, cfg.TrustedPeerCerts)
 	if err != nil {
 		_ = logger.Errorf("Transport init failed: %v", err)
@@ -207,10 +194,6 @@ func (p *program) run() {
 	if p.tx != nil {
 		_ = p.tx.Stop()
 		log.Println("Transport stopped.")
-	}
-	if p.tray != nil {
-		_ = p.tray.Stop()
-		log.Println("Tray manager stopped.")
 	}
 	log.Println("All components stopped. Exiting run().")
 }

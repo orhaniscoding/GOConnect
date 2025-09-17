@@ -75,8 +75,6 @@
   "menu.settings": "Ayarlar",
   "menu.about": "Hakkında",
   "menu.show": "Göster",
-  "menu.hide": "Gizle",
-  "menu.tray": "Tepsi",
-  "menu.trayOnline": "Tepsi Açık",
-  "menu.trayOffline": "Tepsi Kapalı"
+  "menu.hide": "Gizle"
+  
 }
