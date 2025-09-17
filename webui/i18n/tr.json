@@ -3,6 +3,7 @@
   "nav.dashboard": "Pano",
   "nav.networks": "Ağlar",
   "nav.peers": "Eşler",
+  "nav.chat": "Sohbet",
   "nav.settings": "Ayarlar",
   "nav.logs": "Günlük ve Teşhis",
   "nav.about": "Hakkında",
@@ -76,5 +77,14 @@
   "menu.about": "Hakkında",
   "menu.show": "Göster",
   "menu.hide": "Gizle"
+  ,
+  "chat.title": "Ağ Sohbeti",
+  "chat.selectNetwork": "Ağ Seç",
+  "chat.send": "Gönder",
+  "chat.connecting": "Bağlanıyor...",
+  "chat.connected": "Bağlandı",
+  "chat.disconnected": "Koptu",
+  "chat.sendFailed": "Gönderim başarısız",
+  "chat.disabled": "Sohbet kapalı"
   
 }

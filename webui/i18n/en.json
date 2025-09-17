@@ -3,6 +3,7 @@
   "nav.dashboard": "Dashboard",
   "nav.networks": "Networks",
   "nav.peers": "Peers",
+  "nav.chat": "Chat",
   "nav.settings": "Settings",
   "nav.logs": "Logs & Diagnose",
   "nav.about": "About",
@@ -76,5 +77,14 @@
   "menu.about": "About",
   "menu.show": "Show",
   "menu.hide": "Hide"
+  ,
+  "chat.title": "Network Chat",
+  "chat.selectNetwork": "Select Network",
+  "chat.send": "Send",
+  "chat.connecting": "Connecting...",
+  "chat.connected": "Connected",
+  "chat.disconnected": "Disconnected",
+  "chat.sendFailed": "Send failed",
+  "chat.disabled": "Chat disabled"
   
 }

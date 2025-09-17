@@ -175,6 +175,7 @@ func (a *API) updateNetworkSettings(nid string, in *NetworkSettingsState) (*Netw
 	cur.AllowRelayFallback = in.AllowRelayFallback
 	cur.AllowBroadcast = in.AllowBroadcast
 	cur.AllowIPv6 = in.AllowIPv6
+	cur.AllowChat = in.AllowChat
 	if in.MTUOverride >= 0 {
 		cur.MTUOverride = in.MTUOverride
 	}
@@ -212,6 +213,7 @@ func (a *API) updateMemberPreferences(k string, in *MemberPreferencesState) (*Me
 	cur.LocalShareEnabled = in.LocalShareEnabled
 	cur.AdvertiseServices = in.AdvertiseServices
 	cur.AllowIncomingP2P = in.AllowIncomingP2P
+	cur.ChatEnabled = in.ChatEnabled
 	if in.Alias != "" {
 		cur.Alias = in.Alias
 	}

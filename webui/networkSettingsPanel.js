@@ -21,6 +21,7 @@ export function renderNetworkSettingsPanel(settings, onSave) {
       <label><span>Relay Fallback</span> <input type="checkbox" id="allow_relay_fallback" ${settings.AllowRelayFallback ? 'checked' : ''}></label>
       <label><span>Broadcast</span> <input type="checkbox" id="allow_broadcast" ${settings.AllowBroadcast ? 'checked' : ''}></label>
       <label><span>IPv6</span> <input type="checkbox" id="allow_ipv6" ${settings.AllowIPv6 ? 'checked' : ''}></label>
+  <label><span>Allow Chat</span> <input type="checkbox" id="allow_chat" ${settings.AllowChat ? 'checked' : ''}></label>
       <label><span>MTU Override</span> <input type="number" id="mtu_override" value="${settings.MTUOverride || ''}"></label>
       <label><span>Default DNS</span> <input type="text" id="default_dns" value="${(settings.DefaultDNS||[]).join(',')}"></label>
       <label><span>Game Profile</span> <input type="text" id="game_profile" value="${settings.GameProfile||''}"></label>
@@ -42,6 +43,7 @@ export function renderNetworkSettingsPanel(settings, onSave) {
       AllowRelayFallback: panel.querySelector('#allow_relay_fallback').checked,
       AllowBroadcast: panel.querySelector('#allow_broadcast').checked,
       AllowIPv6: panel.querySelector('#allow_ipv6').checked,
+  AllowChat: panel.querySelector('#allow_chat').checked,
       MTUOverride: parseInt(panel.querySelector('#mtu_override').value, 10) || 0,
       DefaultDNS: panel.querySelector('#default_dns').value.split(',').map(s=>s.trim()).filter(Boolean),
       GameProfile: panel.querySelector('#game_profile').value,

@@ -213,6 +213,28 @@ async function loadNetworks() {
       li.addEventListener("click", () => showNetworkDetails(id, joined));
       ul.appendChild(li);
     });
+    // Populate chat network select with joined networks that have chat allowed (we don't yet know AllowChat here; populate all joined for now)
+    const select = document.getElementById('chat-network-select');
+    if (select) {
+      const current = select.value;
+      select.innerHTML = '';
+      networks.filter(n=>n.Joined||n.joined).forEach(n => {
+        const opt = document.createElement('option');
+        opt.value = n.ID || n.id;
+        opt.textContent = (n.Name || n.name || n.ID || n.id);
+        select.appendChild(opt);
+      });
+      if (current) {
+        select.value = current;
+      }
+      if (!select.value && select.options.length>0) {
+        select.selectedIndex = 0;
+      }
+      if (select.value) {
+        connectChatStream(select.value);
+        refreshChatMessages(select.value);
+      }
+    }
   } catch (err) {
     console.error("networks", err);
   }
@@ -492,6 +514,85 @@ function connectSSE() {
 }
 
 document.addEventListener("DOMContentLoaded", init);
+
+// --- Chat logic ---
+let chatEventSource = null;
+
+function connectChatStream(networkId) {
+  if (!networkId) return;
+  if (chatEventSource) {
+    chatEventSource.close();
+  }
+  chatEventSource = new EventSource(`/api/v1/networks/${networkId}/chat/stream`);
+  const messagesEl = document.getElementById('chat-messages');
+  const statusEl = document.getElementById('chat-status');
+  if (statusEl) statusEl.textContent = t('chat.connecting') || 'Connecting...';
+  chatEventSource.onopen = () => { if (statusEl) statusEl.textContent = t('chat.connected') || 'Connected'; };
+  chatEventSource.onerror = () => { if (statusEl) statusEl.textContent = t('chat.disconnected') || 'Disconnected'; };
+  chatEventSource.onmessage = (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      appendChatMessage(msg);
+    } catch (err) {
+      // fallback plain line
+      appendChatMessage({From:'', Text:e.data, At:new Date().toISOString()});
+    }
+  };
+}
+
+function appendChatMessage(msg) {
+  const messagesEl = document.getElementById('chat-messages');
+  if (!messagesEl) return;
+  const time = msg.At ? new Date(msg.At).toLocaleTimeString() : '';
+  const line = document.createElement('div');
+  line.textContent = `[${time}] ${msg.From||''}: ${msg.Text||''}`;
+  messagesEl.appendChild(line);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+async function refreshChatMessages(networkId) {
+  try {
+    const res = await fetch(`/api/v1/networks/${networkId}/chat/messages`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const messagesEl = document.getElementById('chat-messages');
+    messagesEl.innerHTML='';
+    (data.messages||[]).forEach(m=>appendChatMessage(m));
+  } catch (e) {
+    console.error('chat refresh', e);
+  }
+}
+
+document.addEventListener('change', (e) => {
+  if (e.target && e.target.id === 'chat-network-select') {
+    const nid = e.target.value;
+    connectChatStream(nid);
+    refreshChatMessages(nid);
+  }
+});
+
+document.addEventListener('submit', async (e) => {
+  if (e.target && e.target.id === 'chat-form') {
+    e.preventDefault();
+    const select = document.getElementById('chat-network-select');
+    const nid = select && select.value;
+    if (!nid) return;
+    const input = document.getElementById('chat-input');
+    const text = input.value.trim();
+    if (!text) return;
+    try {
+      const res = await fetch(`/api/v1/networks/${nid}/chat/messages`, {method:'POST', credentials:'same-origin', headers:{'X-CSRF-Token': CSRF, 'Content-Type':'application/json'}, body: JSON.stringify({text})});
+      if (res.ok) {
+        input.value='';
+      } else {
+        const statusEl = document.getElementById('chat-status');
+        if (statusEl) statusEl.textContent = t('chat.sendFailed') || 'Send failed';
+      }
+    } catch (err) {
+      console.error('chat send', err);
+    }
+  }
+});
 
 
 

@@ -16,6 +16,7 @@
         <a href="#" class="navlink active" data-section="dashboard" data-i18n="nav.dashboard">Dashboard</a>
         <a href="#" class="navlink" data-section="networks" data-i18n="nav.networks">Networks</a>
         <a href="#" class="navlink" data-section="peers" data-i18n="nav.peers">Peers</a>
+  <a href="#" class="navlink" data-section="chat" data-i18n="nav.chat">Chat</a>
         <a href="#" class="navlink" data-section="settings" data-i18n="nav.settings">Settings</a>
         <a href="#" class="navlink" data-section="logs" data-i18n="nav.logs">Logs & Diagnose</a>
         <a href="#" class="navlink" data-section="about" data-i18n="nav.about">About</a>
@@ -127,6 +128,21 @@
       <section id="section-logs" class="section">
         <h3 data-i18n="logs.title">Live Logs</h3>
         <pre id="log-stream" class="log"></pre>
+      </section>
+
+      <section id="section-chat" class="section">
+        <h3 data-i18n="chat.title">Network Chat</h3>
+        <div class="chat-controls">
+          <label><span data-i18n="chat.selectNetwork">Select Network</span>
+            <select id="chat-network-select"></select>
+          </label>
+        </div>
+        <div class="chat-window" id="chat-messages" style="height:250px;overflow:auto;border:1px solid #333;padding:6px;background:#111;font-family:monospace;"></div>
+        <form id="chat-form" class="chat-form" style="margin-top:8px;display:flex;gap:8px;">
+          <input type="text" id="chat-input" placeholder="Message" style="flex:1;">
+          <button type="submit" data-i18n="chat.send">Send</button>
+        </form>
+        <div id="chat-status" class="meta" style="margin-top:4px;"></div>
       </section>
 
       <section id="section-about" class="section">

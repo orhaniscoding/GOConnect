@@ -101,5 +101,46 @@ Add new string keys in both `internal/i18n/*.json` and `webui/i18n/*.json`. Avoi
 * Metrics endpoint (Prometheus format) for observability
 * Automated upgrade channel (real implementation of updater stub)
 
----
+### Network Chat (Experimental)
+
+An in-memory per-network chat channel has been added for functional testing:
+
+Endpoints (all under `/api/v1/networks/{id}`):
+
+* `GET /chat/messages` – Returns last (max 200) messages.
+* `POST /chat/messages` – Send a message `{ "text": "hello" }` (requires network `AllowChat` and member `ChatEnabled`).
+* `GET /chat/stream` – Server Sent Events (SSE) stream; each event `data:` line is a JSON encoded ChatMessage.
+
+Controls:
+
+* Network owner (or current placeholder owner logic) toggles chat via `Allow Chat` in Network Settings panel.
+* Member enables personal participation with `Chat Enabled` in My Preferences panel.
+
+Message object schema:
+
+```
+{
+	"id": string,
+	"network_id": string,
+	"from": string,
+	"text": string,
+	"at": RFC3339 timestamp (UTC)
+}
+```
+
+Retention: Only last 200 messages kept per network (in-memory only, not persisted yet).
+
+UI:
+
+* New Chat sidebar item.
+* Network selector lists joined networks.
+* Autoconnects SSE on selection; initial history loaded via REST.
+
+Limitations / Future Work:
+
+* Persistence not implemented (restart loses history).
+* No authentication / multi-user identity separation yet (nickname from member prefs used).
+* No paging or search.
+* Basic flood protection only via channel buffer; consider rate limiting.
+
 Happy hacking! Open issues for architectural questions before large rewrites.

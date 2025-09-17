@@ -39,7 +39,18 @@ type API struct {
 	// v1 per-network data (in-memory for now)
 	netMu             sync.RWMutex
 	networkSettings   map[string]*NetworkSettingsState
-	memberPreferences map[string]*MemberPreferencesState // key: networkID+"/"+member (only "me" supported now)
+	memberPreferences map[string]*MemberPreferencesState       // key: networkID+"/"+member (only "me" supported now)
+	chatHistories     map[string][]ChatMessage                 // key: networkID
+	chatSubs          map[string]map[chan ChatMessage]struct{} // networkID -> subscribers
+}
+
+// ChatMessage represents a single chat line within a network.
+type ChatMessage struct {
+	ID        string    `json:"id"`
+	NetworkID string    `json:"network_id"`
+	From      string    `json:"from"`
+	Text      string    `json:"text"`
+	At        time.Time `json:"at"`
 }
 
 // errorResponse standard form
@@ -84,6 +95,7 @@ type NetworkSettingsState struct {
 	AllowRelayFallback bool     `json:"allow_relay_fallback"`
 	AllowBroadcast     bool     `json:"allow_broadcast"`
 	AllowIPv6          bool     `json:"allow_ipv6"`
+	AllowChat          bool     `json:"allow_chat"`
 	MTUOverride        int      `json:"mtu_override"`
 	DefaultDNS         []string `json:"default_dns"`
 	GameProfile        string   `json:"game_profile"`
@@ -100,6 +112,7 @@ type MemberPreferencesState struct {
 	LocalShareEnabled bool   `json:"local_share_enabled"`
 	AdvertiseServices bool   `json:"advertise_services"`
 	AllowIncomingP2P  bool   `json:"allow_incoming_p2p"`
+	ChatEnabled       bool   `json:"chat_enabled"`
 	Alias             string `json:"alias"`
 	Notes             string `json:"notes"`
 }
@@ -115,6 +128,8 @@ func New(state *core.State, cfg *config.Config, logger *log.Logger, shutdown fun
 		sseSubs:           map[chan string]struct{}{},
 		networkSettings:   map[string]*NetworkSettingsState{},
 		memberPreferences: map[string]*MemberPreferencesState{},
+		chatHistories:     map[string][]ChatMessage{},
+		chatSubs:          map[string]map[chan ChatMessage]struct{}{},
 		startTime:         time.Now(),
 	}
 	// attempt load persisted state (best-effort)
@@ -164,29 +179,38 @@ func (a *API) Serve(addr string, webDir string) *http.Server {
 	mux.HandleFunc("/api/v1/networks/", func(w http.ResponseWriter, r *http.Request) {
 		// Route: /api/v1/networks/{networkId}/settings, /me/preferences, /effective
 		path := strings.TrimPrefix(r.URL.Path, "/api/v1/networks/")
-		parts := strings.SplitN(path, "/", 3)
+		parts := strings.Split(path, "/")
 		if len(parts) < 2 {
 			http.NotFound(w, r)
 			return
 		}
 		networkID := parts[0]
-		sub := parts[1]
 		ctx := WithNetworkID(r.Context(), networkID)
 		r = r.WithContext(ctx)
-		switch sub {
-		case "settings":
+		if parts[1] == "settings" && len(parts) == 2 {
 			a.wrap(a.handleNetworkSettings)(w, r)
-		case "me":
-			if len(parts) == 3 && parts[2] == "preferences" {
-				a.wrap(a.handleMemberPreferences)(w, r)
+			return
+		}
+		if parts[1] == "me" && len(parts) == 3 && parts[2] == "preferences" {
+			a.wrap(a.handleMemberPreferences)(w, r)
+			return
+		}
+		if parts[1] == "effective" && len(parts) == 2 {
+			a.wrap(a.handleEffectivePolicy)(w, r)
+			return
+		}
+		// Chat endpoints: /api/v1/networks/{id}/chat/messages and /chat/stream
+		if parts[1] == "chat" && len(parts) >= 3 {
+			if parts[2] == "messages" {
+				a.handleChatMessages(w, r)
 				return
 			}
-			http.NotFound(w, r)
-		case "effective":
-			a.wrap(a.handleEffectivePolicy)(w, r)
-		default:
-			http.NotFound(w, r)
+			if parts[2] == "stream" {
+				a.handleChatStream(w, r)
+				return
+			}
 		}
+		http.NotFound(w, r)
 	})
 	// --- end v1 endpoints ---
 	mux.HandleFunc("/api/diag/run", a.wrapPOST(a.handleDiagRun))
@@ -624,6 +648,135 @@ func (a *API) log(event string) {
 		}
 	}
 	a.sseMu.Unlock()
+}
+
+// addChatMessage appends a message to a network chat history and broadcasts to subscribers.
+func (a *API) addChatMessage(networkID, from, text string) ChatMessage {
+	msg := ChatMessage{
+		ID:        randomToken(),
+		NetworkID: networkID,
+		From:      from,
+		Text:      strings.TrimSpace(text),
+		At:        time.Now().UTC(),
+	}
+	a.netMu.Lock()
+	a.chatHistories[networkID] = append(a.chatHistories[networkID], msg)
+	// Cap history to last 200 messages per network to avoid unbounded growth.
+	if len(a.chatHistories[networkID]) > 200 {
+		a.chatHistories[networkID] = a.chatHistories[networkID][len(a.chatHistories[networkID])-200:]
+	}
+	subs := a.chatSubs[networkID]
+	a.netMu.Unlock()
+	for ch := range subs {
+		select {
+		case ch <- msg:
+		default:
+		}
+	}
+	return msg
+}
+
+// subscribeChat registers a channel to receive chat messages for a network.
+func (a *API) subscribeChat(networkID string) chan ChatMessage {
+	ch := make(chan ChatMessage, 32)
+	a.netMu.Lock()
+	if a.chatSubs[networkID] == nil {
+		a.chatSubs[networkID] = map[chan ChatMessage]struct{}{}
+	}
+	a.chatSubs[networkID][ch] = struct{}{}
+	a.netMu.Unlock()
+	return ch
+}
+
+// unsubscribeChat removes a chat subscription.
+func (a *API) unsubscribeChat(networkID string, ch chan ChatMessage) {
+	a.netMu.Lock()
+	if m := a.chatSubs[networkID]; m != nil {
+		delete(m, ch)
+	}
+	a.netMu.Unlock()
+	close(ch)
+}
+
+// handleChatMessages supports:
+// GET -> list recent messages (up to 200)
+// POST -> add a new message {text:"..."}
+func (a *API) handleChatMessages(w http.ResponseWriter, r *http.Request) {
+	nid, ok := NetworkIDFromContext(r.Context())
+	if !ok {
+		http.Error(w, "network not found", http.StatusNotFound)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		a.netMu.RLock()
+		msgs := a.chatHistories[nid]
+		out := append([]ChatMessage(nil), msgs...)
+		a.netMu.RUnlock()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"messages": out})
+	case http.MethodPost:
+		// Basic enablement checks
+		a.netMu.RLock()
+		ns := a.networkSettings[nid]
+		prefs := a.memberPreferences[nid+"/me"]
+		a.netMu.RUnlock()
+		if ns == nil || prefs == nil || !ns.AllowChat || !prefs.ChatEnabled {
+			http.Error(w, "chat not enabled", http.StatusForbidden)
+			return
+		}
+		var in struct {
+			Text string `json:"text"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil || strings.TrimSpace(in.Text) == "" {
+			http.Error(w, "bad json", http.StatusBadRequest)
+			return
+		}
+		msg := a.addChatMessage(nid, prefs.Nickname, in.Text)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(msg)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleChatStream streams new chat messages via SSE.
+func (a *API) handleChatStream(w http.ResponseWriter, r *http.Request) {
+	nid, ok := NetworkIDFromContext(r.Context())
+	if !ok {
+		http.Error(w, "network not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	ch := a.subscribeChat(nid)
+	// Send last messages initially
+	a.netMu.RLock()
+	history := a.chatHistories[nid]
+	a.netMu.RUnlock()
+	if flusher, ok := w.(http.Flusher); ok {
+		for _, m := range history {
+			b, _ := json.Marshal(m)
+			fmt.Fprintf(w, "data: %s\n\n", string(b))
+		}
+		flusher.Flush()
+	}
+	notify := w.(http.CloseNotifier).CloseNotify()
+	go func() {
+		<-notify
+		a.unsubscribeChat(nid, ch)
+	}()
+	if flusher, ok := w.(http.Flusher); ok {
+		for msg := range ch {
+			b, _ := json.Marshal(msg)
+			fmt.Fprintf(w, "data: %s\n\n", string(b))
+			flusher.Flush()
+		}
+	} else {
+		a.unsubscribeChat(nid, ch)
+	}
 }
 
 func ResolveWebDir() string {
