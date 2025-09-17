@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>GOConnect</title>
   <link rel="stylesheet" href="styles.css?v=20250916">
-  <script defer src="app.js?v=20250916"></script>
+  <script type="module" src="app.js?v=20250916"></script>
 </head>
 <body>
   <div class="layout">
@@ -66,6 +66,7 @@
         <h3 data-i18n="nav.networks">Networks</h3>
         <p data-i18n="networks.description">Manage network memberships (stub).</p>
         <ul id="networks-list" class="list networks"></ul>
+        <div id="network-details-panel"></div>
         <form id="network-form" class="form-grid networks-form">
           <h4 data-i18n="networks.addTitle">Join Network</h4>
           <label><span data-i18n="networks.id">Network ID</span>

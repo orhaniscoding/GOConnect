@@ -2,22 +2,29 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run Service",
+      "name": "GOConnect Service (debug)",
       "type": "go",
       "request": "launch",
       "mode": "auto",
-      "program": "${workspaceFolder}/cmd/service",
-      "env": {},
-      "args": []
+      "program": "${workspaceFolder}/cmd/goconnectservice",
+      "env": {
+        "GOCONNECT_DEV": "1"
+      },
+      "args": [],
+      "cwd": "${workspaceFolder}"
     },
     {
-      "name": "Run Tray",
+      "name": "GOConnect Service (wintun tag)",
       "type": "go",
       "request": "launch",
       "mode": "auto",
-      "program": "${workspaceFolder}/cmd/tray",
-      "env": {},
-      "args": []
+      "program": "${workspaceFolder}/cmd/goconnectservice",
+      "buildFlags": "-tags=wintun",
+      "env": {
+        "GOCONNECT_DEV": "1"
+      },
+      "args": [],
+      "cwd": "${workspaceFolder}"
     }
   ]
 }

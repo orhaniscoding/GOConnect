@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -29,27 +30,104 @@ type API struct {
 	ipam      *ipam.Allocator
 	csrfToken string
 	shutdown  func()
+	startTime time.Time
 
 	sseMu   sync.Mutex
 	sseSubs map[chan string]struct{}
 	peersFn func() []map[string]any
+
+	// v1 per-network data (in-memory for now)
+	netMu             sync.RWMutex
+	networkSettings   map[string]*NetworkSettingsState
+	memberPreferences map[string]*MemberPreferencesState // key: networkID+"/"+member (only "me" supported now)
+}
+
+// errorResponse standard form
+type errorResponse struct {
+	Error   string `json:"error"`
+	Message string `json:"message,omitempty"`
+}
+
+func errPayload(code int, key, msg string) (int, any) {
+	if msg == "" {
+		msg = key
+	}
+	return code, errorResponse{Error: key, Message: msg}
+}
+
+// context keys and helpers
+type ctxKey int
+
+const (
+	ctxKeyNetworkID ctxKey = iota
+)
+
+func WithNetworkID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, ctxKeyNetworkID, id)
+}
+
+func NetworkIDFromContext(ctx context.Context) (string, bool) {
+	v, ok := ctx.Value(ctxKeyNetworkID).(string)
+	return v, ok
+}
+
+// NetworkSettingsState holds versioned settings for a network.
+type NetworkSettingsState struct {
+	Version            int      `json:"version"`
+	MTU                int      `json:"mtu"`
+	Port               int      `json:"port"`
+	AllowAll           bool     `json:"allow_all"`
+	Mode               string   `json:"mode"`
+	AllowFileShare     bool     `json:"allow_file_share"`
+	AllowServiceDisc   bool     `json:"allow_service_discovery"`
+	AllowPeerPing      bool     `json:"allow_peer_ping"`
+	AllowRelayFallback bool     `json:"allow_relay_fallback"`
+	AllowBroadcast     bool     `json:"allow_broadcast"`
+	AllowIPv6          bool     `json:"allow_ipv6"`
+	MTUOverride        int      `json:"mtu_override"`
+	DefaultDNS         []string `json:"default_dns"`
+	GameProfile        string   `json:"game_profile"`
+	RequireEncryption  bool     `json:"require_encryption"`
+	RestrictNewMembers bool     `json:"restrict_new_members"`
+	IdleDisconnectMin  int      `json:"idle_disconnect_minutes"`
+}
+
+// MemberPreferencesState holds versioned member preferences.
+type MemberPreferencesState struct {
+	Version           int    `json:"version"`
+	AllowInternet     bool   `json:"allow_internet"`
+	Nickname          string `json:"nickname"`
+	LocalShareEnabled bool   `json:"local_share_enabled"`
+	AdvertiseServices bool   `json:"advertise_services"`
+	AllowIncomingP2P  bool   `json:"allow_incoming_p2p"`
+	Alias             string `json:"alias"`
+	Notes             string `json:"notes"`
 }
 
 func New(state *core.State, cfg *config.Config, logger *log.Logger, shutdown func()) *API {
 	a := &API{
-		state:     state,
-		cfg:       cfg,
-		logger:    logger,
-		ipam:      ipam.New(),
-		csrfToken: randomToken(),
-		shutdown:  shutdown,
-		sseSubs:   map[chan string]struct{}{},
+		state:             state,
+		cfg:               cfg,
+		logger:            logger,
+		ipam:              ipam.New(),
+		csrfToken:         randomToken(),
+		shutdown:          shutdown,
+		sseSubs:           map[chan string]struct{}{},
+		networkSettings:   map[string]*NetworkSettingsState{},
+		memberPreferences: map[string]*MemberPreferencesState{},
+		startTime:         time.Now(),
 	}
+	// attempt load persisted state (best-effort)
+	_ = a.loadAllOnce()
 	state.SetNetworks(mapNetworks(cfg.Networks))
 	for _, n := range cfg.Networks {
 		if n.Address != "" {
 			a.ipam.Reserve(n.ID, n.Address)
 		}
+		// seed default settings with sensible baseline
+		a.networkSettings[n.ID] = &NetworkSettingsState{Version: 1, MTU: cfg.MTU, Port: cfg.Port, Mode: "default", AllowAll: true}
+		// seed default member prefs for "me"
+		a.memberPreferences[n.ID+"/me"] = &MemberPreferencesState{Version: 1, AllowInternet: true, Nickname: "me"}
 	}
 	return a
 }
@@ -80,9 +158,37 @@ func (a *API) Serve(addr string, webDir string) *http.Server {
 	mux.HandleFunc("/api/networks/leave", a.wrapPOST(a.handleNetworksLeave))
 	mux.HandleFunc("/api/peers", a.wrap(a.handlePeers))
 	mux.HandleFunc("/api/logs/stream", a.handleLogsStream)
-	// Tray başlat/durdur endpointleri kaldırıldı. Tray sadece elle açılır/kapanır.
-	// Legacy tray endpoints removed; heartbeat endpoints not required for Wails tray.
 	mux.HandleFunc("/api/settings", a.wrap(a.handleSettings))
+	mux.HandleFunc("/api/metrics", a.wrap(a.handleMetrics))
+	// --- v1 endpoints for webui integration ---
+	mux.HandleFunc("/api/v1/networks/", func(w http.ResponseWriter, r *http.Request) {
+		// Route: /api/v1/networks/{networkId}/settings, /me/preferences, /effective
+		path := strings.TrimPrefix(r.URL.Path, "/api/v1/networks/")
+		parts := strings.SplitN(path, "/", 3)
+		if len(parts) < 2 {
+			http.NotFound(w, r)
+			return
+		}
+		networkID := parts[0]
+		sub := parts[1]
+		ctx := WithNetworkID(r.Context(), networkID)
+		r = r.WithContext(ctx)
+		switch sub {
+		case "settings":
+			a.wrap(a.handleNetworkSettings)(w, r)
+		case "me":
+			if len(parts) == 3 && parts[2] == "preferences" {
+				a.wrap(a.handleMemberPreferences)(w, r)
+				return
+			}
+			http.NotFound(w, r)
+		case "effective":
+			a.wrap(a.handleEffectivePolicy)(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	// --- end v1 endpoints ---
 	mux.HandleFunc("/api/diag/run", a.wrapPOST(a.handleDiagRun))
 	mux.HandleFunc("/api/update/check", a.wrapPOST(a.handleUpdateCheck))
 	mux.HandleFunc("/api/update/apply", a.wrapPOST(a.handleUpdateApply))
@@ -428,6 +534,38 @@ func (a *API) handleExit(w http.ResponseWriter, r *http.Request) (int, any) {
 		os.Exit(0)
 	}()
 	return 200, map[string]string{"result": "exiting"}
+}
+
+// handleMetrics returns a simple JSON metrics payload (not Prometheus format yet).
+func (a *API) handleMetrics(w http.ResponseWriter, r *http.Request) (int, any) {
+	uptime := time.Since(a.startTime).Seconds()
+	a.netMu.RLock()
+	netCount := len(a.networkSettings)
+	prefCount := len(a.memberPreferences)
+	a.netMu.RUnlock()
+	a.sseMu.Lock()
+	subs := len(a.sseSubs)
+	a.sseMu.Unlock()
+	svcState, tunUp, ctrlUp, networks, peers, settings := a.state.Snapshot()
+	joined := 0
+	for _, n := range networks {
+		if n.Joined {
+			joined++
+		}
+	}
+	return 200, map[string]any{
+		"uptime_seconds":             uptime,
+		"service_state":              svcState,
+		"tun_up":                     tunUp,
+		"controller_up":              ctrlUp,
+		"networks_joined":            joined,
+		"networks_total":             len(networks),
+		"configured_peers":           len(peers),
+		"sse_subscribers":            subs,
+		"network_settings_objects":   netCount,
+		"member_preferences_objects": prefCount,
+		"mtu":                        settings.MTU,
+	}
 }
 
 func (a *API) handleLogsStream(w http.ResponseWriter, r *http.Request) {

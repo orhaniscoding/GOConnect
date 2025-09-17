@@ -105,8 +105,6 @@ func (p *program) run() {
 	gi18n.SetActiveLanguage(cfg.Language)
 	log.Println("i18n resources loaded.")
 
-	// Legacy separate tray manager removed; Wails tray runs independently now.
-
 	st := core.NewState(core.Settings{
 		Port:             cfg.Port,
 		MTU:              cfg.MTU,

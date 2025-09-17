@@ -145,6 +145,10 @@ function updateTunSelf(err) {
 
 // updateTrayState removed
 
+import { renderNetworkSettingsPanel } from "./networkSettingsPanel.js";
+import { renderMemberPreferencesPanel } from "./memberPreferencesPanel.js";
+import { renderEffectivePolicyPanel } from "./effectivePolicyPanel.js";
+
 async function loadNetworks() {
   try {
     const res = await fetch("/api/networks");
@@ -152,6 +156,8 @@ async function loadNetworks() {
     const networks = Array.isArray(data.networks) ? data.networks : [];
     const ul = document.getElementById("networks-list");
     ul.innerHTML = "";
+    const detailsPanel = document.getElementById("network-details-panel");
+    detailsPanel.innerHTML = "";
     if (networks.length === 0) {
       const li = document.createElement("li");
       li.className = "network-item empty";
@@ -204,10 +210,68 @@ async function loadNetworks() {
       actions.append(status, btn);
 
       li.append(info, actions);
+      li.addEventListener("click", () => showNetworkDetails(id, joined));
       ul.appendChild(li);
     });
   } catch (err) {
     console.error("networks", err);
+  }
+}
+
+async function showNetworkDetails(networkId, joined) {
+  const detailsPanel = document.getElementById("network-details-panel");
+  detailsPanel.innerHTML = "<div>Loading...</div>";
+  try {
+    // Fetch settings, preferences, and effective policy in parallel
+    const [settingsRes, prefsRes, policyRes] = await Promise.all([
+      fetch(`/api/v1/networks/${networkId}/settings`),
+      fetch(`/api/v1/networks/${networkId}/me/preferences`),
+      fetch(`/api/v1/networks/${networkId}/effective?node=me`)
+    ]);
+    const [settings, prefs, policy] = await Promise.all([
+      settingsRes.json(),
+      prefsRes.json(),
+      policyRes.json()
+    ]);
+    detailsPanel.innerHTML = "";
+    // Owner panel (show if user is owner, here we show for all joined for demo)
+    if (joined) {
+      detailsPanel.appendChild(renderNetworkSettingsPanel(settings, async (updated) => {
+        const resp = await fetch(`/api/v1/networks/${networkId}/settings`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(updated)
+        });
+        if (resp.status === 409) {
+          alert("Settings conflict: data changed, reloading.");
+        } else if (!resp.ok) {
+          const txt = await resp.text();
+          alert("Settings update failed: " + txt);
+        }
+        await loadNetworks();
+        showNetworkDetails(networkId, joined);
+      }));
+      detailsPanel.appendChild(renderMemberPreferencesPanel(prefs, async (updated) => {
+        const resp = await fetch(`/api/v1/networks/${networkId}/me/preferences`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(updated)
+        });
+        if (resp.status === 409) {
+          alert("Preferences conflict: data changed, reloading.");
+        } else if (!resp.ok) {
+          const txt = await resp.text();
+          alert("Preferences update failed: " + txt);
+        }
+        await loadNetworks();
+        showNetworkDetails(networkId, joined);
+      }));
+      detailsPanel.appendChild(renderEffectivePolicyPanel(policy));
+    } else {
+      detailsPanel.innerHTML = "<div>Not a member of this network.</div>";
+    }
+  } catch (err) {
+    detailsPanel.innerHTML = `<div>Error loading details: ${err.message || err}</div>`;
   }
 }
 

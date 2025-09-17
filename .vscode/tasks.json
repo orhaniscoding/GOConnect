@@ -1,0 +1,40 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Build Service",
+			"type": "shell",
+			"command": "go build -o bin/goconnect-service.exe ./cmd/goconnectservice",
+			"problemMatcher": ["$go"],
+			"group": {"kind": "build", "isDefault": true}
+		},
+		{
+			"label": "Build All",
+			"type": "shell",
+			"command": "go build ./...",
+			"problemMatcher": ["$go"],
+			"group": "build"
+		},
+		{
+			"label": "Test (short)",
+			"type": "shell",
+			"command": "go test ./... -run Test -count=1",
+			"problemMatcher": ["$go"],
+			"group": "test"
+		},
+		{
+			"label": "Run Service (dev)",
+			"type": "shell",
+			"command": "go run ./cmd/goconnectservice",
+			"problemMatcher": ["$go"],
+			"group": "none"
+		},
+		{
+			"label": "Run Service (wintun)",
+			"type": "shell",
+			"command": "go run -tags=wintun ./cmd/goconnectservice",
+			"problemMatcher": ["$go"],
+			"group": "none"
+		}
+	]
+}

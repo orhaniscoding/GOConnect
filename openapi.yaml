@@ -1,0 +1,190 @@
+openapi: 3.0.3
+info:
+  title: GOConnect Local API
+  version: 0.1.0
+  description: |
+    Local agent HTTP API for GOConnect. Includes core control endpoints and experimental v1 network scope endpoints.
+servers:
+  - url: http://127.0.0.1:2537
+paths:
+  /api/status:
+    get:
+      summary: Service status snapshot
+      responses:
+        '200':
+          description: OK
+  /api/settings:
+    get:
+      summary: Get global agent settings
+      responses:
+        '200': { description: OK }
+    put:
+      summary: Update global agent settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '200': { description: Updated }
+  /api/service/start:
+    post:
+      summary: Start service
+      responses: { '200': { description: OK } }
+  /api/service/stop:
+    post:
+      summary: Stop service
+      responses: { '200': { description: OK } }
+  /api/networks:
+    get:
+      summary: List configured networks
+      responses: { '200': { description: OK } }
+  /api/networks/join:
+    post:
+      summary: Join a network
+      responses: { '200': { description: Joined } }
+  /api/networks/leave:
+    post:
+      summary: Leave a network
+      responses: { '200': { description: Left } }
+  /api/v1/networks/{networkId}/settings:
+    get:
+      summary: Get versioned network settings
+      parameters:
+        - in: path
+          name: networkId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+        '404': { description: Not found }
+    put:
+      summary: Update network settings (optimistic concurrency)
+      parameters:
+        - in: path
+          name: networkId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, properties: { Version: { type: integer } } }
+      responses:
+        '200': { description: Updated }
+        '409': { description: Version conflict }
+  /api/v1/networks/{networkId}/me/preferences:
+    get:
+      summary: Get member preferences
+      parameters:
+        - in: path
+          name: networkId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+    put:
+      summary: Update member preferences (optimistic concurrency)
+      parameters:
+        - in: path
+          name: networkId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, properties: { Version: { type: integer } } }
+      responses:
+        '200': { description: Updated }
+        '409': { description: Version conflict }
+  /api/v1/networks/{networkId}/effective:
+    get:
+      summary: Get effective policy for current member
+      parameters:
+        - in: path
+          name: networkId
+          required: true
+          schema: { type: string }
+        - in: query
+          name: node
+          schema: { type: string, default: me }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EffectivePolicy'
+        '404': { description: Not found }
+  /api/metrics:
+    get:
+      summary: Basic service metrics
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Metrics'
+components:
+  schemas:
+    NetworkSettings:
+      type: object
+      properties:
+        version: { type: integer }
+        mtu: { type: integer }
+        port: { type: integer }
+        allow_all: { type: boolean }
+        mode: { type: string }
+        allow_file_share: { type: boolean }
+        allow_service_discovery: { type: boolean }
+        allow_peer_ping: { type: boolean }
+        allow_relay_fallback: { type: boolean }
+        allow_broadcast: { type: boolean }
+        allow_ipv6: { type: boolean }
+        mtu_override: { type: integer }
+        default_dns: { type: array, items: { type: string } }
+        game_profile: { type: string }
+        require_encryption: { type: boolean }
+        restrict_new_members: { type: boolean }
+        idle_disconnect_minutes: { type: integer }
+    MemberPreferences:
+      type: object
+      properties:
+        version: { type: integer }
+        allow_internet: { type: boolean }
+        nickname: { type: string }
+        local_share_enabled: { type: boolean }
+        advertise_services: { type: boolean }
+        allow_incoming_p2p: { type: boolean }
+        alias: { type: string }
+        notes: { type: string }
+    EffectivePolicy:
+      type: object
+      properties:
+        policy: { type: string }
+        reason: { type: string }
+        network_mtu: { type: integer }
+        network_port: { type: integer }
+        allow_internet: { type: boolean }
+        encryption_required: { type: boolean }
+        relay_fallback: { type: boolean }
+        broadcast_allowed: { type: boolean }
+        ipv6_allowed: { type: boolean }
+        idle_disconnect_minutes: { type: integer }
+        default_dns: { type: array, items: { type: string } }
+    Metrics:
+      type: object
+      properties:
+        uptime_seconds: { type: number, format: float }
+        service_state: { type: string }
+        tun_up: { type: boolean }
+        controller_up: { type: boolean }
+        networks_joined: { type: integer }
+        networks_total: { type: integer }
+        configured_peers: { type: integer }
+        sse_subscribers: { type: integer }
+        network_settings_objects: { type: integer }
+        member_preferences_objects: { type: integer }
+        mtu: { type: integer }
