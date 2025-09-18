@@ -494,8 +494,17 @@ async function postJSON(path, body) {
     body: JSON.stringify(body),
   });
   if (!res.ok) {
+    let msg = "";
     const text = await res.text();
-    throw new Error(`${res.status} ${res.statusText}${text ? `: ${text}` : ""}`);
+    if (text) {
+      try {
+        const data = JSON.parse(text);
+        msg = data.message || data.error || text;
+      } catch (_) {
+        msg = text;
+      }
+    }
+    throw new Error(`${res.status} ${res.statusText}${msg ? `: ${msg}` : ""}`);
   }
   return res;
 }
