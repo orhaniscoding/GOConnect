@@ -4,7 +4,7 @@
 $ServiceName = "GOConnectController"
 $ServiceDisplayName = "GOConnect Controller Service"
 $ServiceDescription = "GOConnect VPN Controller."
-$ExePath = Join-Path $PSScriptRoot "..\..\bin\goconnectcontroller.exe"
+$ExePath = Join-Path $PSScriptRoot "goconnectcontroller.exe"
 
 if (-not (Test-Path $ExePath)) {
     Write-Error "Controller binary not found: $ExePath"

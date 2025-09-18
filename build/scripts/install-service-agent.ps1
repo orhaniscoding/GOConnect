@@ -4,7 +4,7 @@
 $ServiceName = "GOConnect"
 $ServiceDisplayName = "GOConnect Agent Service"
 $ServiceDescription = "GOConnect VPN Agent."
-$ExePath = Join-Path $PSScriptRoot "..\..\bin\goconnect-service.exe"
+$ExePath = Join-Path $PSScriptRoot "goconnect-service.exe"
 
 if (-not (Test-Path $ExePath)) {
     Write-Error "Agent binary not found: $ExePath"
