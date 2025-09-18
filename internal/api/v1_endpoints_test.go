@@ -79,8 +79,8 @@ func (c *testClient) doJSON(method, path string, body any, out any, expect int) 
 	req := httptest.NewRequest(method, path, &buf)
 	if method != http.MethodGet {
 		if c.csrf == "" {
-			// first do a priming GET to obtain cookie
-			priming := httptest.NewRequest(http.MethodGet, "/api/v1/networks/n1/settings", nil)
+			// first do a priming GET to obtain cookie using a stable endpoint
+			priming := httptest.NewRequest(http.MethodGet, "/api/status", nil)
 			rr := httptest.NewRecorder()
 			c.srv.Handler.ServeHTTP(rr, priming)
 			if rr.Code != 200 {
@@ -106,4 +106,35 @@ func (c *testClient) doJSON(method, path string, body any, out any, expect int) 
 	if out != nil {
 		_ = json.Unmarshal(rr.Body.Bytes(), out)
 	}
+}
+
+func TestJoinSecretValidation(t *testing.T) {
+	// Start with empty config (no preexisting networks) to test setting secret on first join
+	cfg := config.Default("en")
+	st := core.NewState(core.Settings{Port: cfg.Port, MTU: cfg.MTU})
+	logger := log.New(io.Discard, "test", log.LstdFlags)
+	api := New(st, cfg, logger, func() {})
+	srv := api.Serve(":0", "")
+	client := newTestClient(t, srv)
+
+	// 1) First join with secret provided -> should succeed and persist secret
+	var joinOK map[string]any
+	body1 := map[string]any{"id": "secnet", "name": "SecNet", "join_secret": "s3cr3t"}
+	client.doJSON(http.MethodPost, "/api/networks/join", body1, &joinOK, 200)
+
+	// 2) Second join without providing secret -> should error 400 missing_join_secret
+	var joinMissing map[string]any
+	body2 := map[string]any{"id": "secnet"}
+	// Use client helper to set csrf/cookies properly
+	client.doJSON(http.MethodPost, "/api/networks/join", body2, &joinMissing, 400)
+
+	// 3) Second join with wrong secret -> 403 invalid_join_secret
+	var joinWrong map[string]any
+	body3 := map[string]any{"id": "secnet", "join_secret": "wrong"}
+	client.doJSON(http.MethodPost, "/api/networks/join", body3, &joinWrong, 403)
+
+	// 4) Correct secret -> 200
+	var joinOK2 map[string]any
+	body4 := map[string]any{"id": "secnet", "join_secret": "s3cr3t"}
+	client.doJSON(http.MethodPost, "/api/networks/join", body4, &joinOK2, 200)
 }

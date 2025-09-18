@@ -33,3 +33,24 @@ func TestManagerRespectsTrustedPEMs(t *testing.T) {
 		t.Fatalf("NewManager failed with trusted PEM: %v", err)
 	}
 }
+
+func TestManagerRespectsInlinePEM(t *testing.T) {
+	dir := t.TempDir()
+	pemBytes, err := os.ReadFile(filepath.Join("testdata", "valid_test_cert.pem"))
+	if err != nil {
+		t.Fatalf("read pem: %v", err)
+	}
+	inline := string(pemBytes)
+	trusted := []string{inline}
+	if _, err := NewManager("127.0.0.1:0", nil, dir, trusted); err != nil {
+		t.Fatalf("inline PEM should be accepted: %v", err)
+	}
+}
+
+func TestManagerRejectsInvalidInlinePEM(t *testing.T) {
+	dir := t.TempDir()
+	trusted := []string{"-----BEGIN CERTIFICATE-----\nINVALID\n-----END CERTIFICATE-----"}
+	if _, err := NewManager("127.0.0.1:0", nil, dir, trusted); err == nil {
+		t.Fatalf("expected error for invalid inline PEM")
+	}
+}

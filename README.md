@@ -70,6 +70,8 @@ Her iki binary ve ilgili scriptleri aynı makinede kurup yukarıdaki adımları 
 - Web arayüzü: http://localhost:2537
 - Controller token’ı: `secrets/controller_token.txt` dosyasında bulunur
 - Agent’lar ağa katılırken bu token’ı kullanır
+ - Güvenilir eş sertifikaları: Ayarlardaki `trusted_peer_certs` alanı hem dosya yolu (göreli yollar `ProgramData/GOConnect/secrets` altına göre çözümlenir) hem de satır içi PEM içeriğini ("-----BEGIN CERTIFICATE-----" ile başlayan) destekler.
+ - Katılım sırrı (JoinSecret): Bir ağ için sır tanımlandıysa katılım sırasında boş bırakılamaz ve eşleşmelidir; aksi halde 400/403 döner.
 
 ### Sıkça Sorulanlar (FAQ)
 - **Sadece controller kurarsam agent kurmak zorunda mıyım?** Hayır, sadece controller kurmak yeterlidir. Agent sadece istemci cihazlara kurulmalıdır.
@@ -154,6 +156,8 @@ You can install both binaries and their scripts on the same machine and follow t
 - Web UI: http://localhost:2537
 - Controller token: found in `secrets/controller_token.txt`
 - Agents use this token to join the network
+ - Trusted peer certificates: The `trusted_peer_certs` setting accepts either file paths (relative paths are resolved against `ProgramData/GOConnect/secrets`) or inline PEM strings containing "-----BEGIN CERTIFICATE-----".
+ - JoinSecret enforcement: If a network has a `join_secret` configured, clients must supply a non-empty matching secret when joining; otherwise, the API returns 400 (missing) or 403 (mismatch).
 
 ### Frequently Asked Questions (FAQ)
 - **If I only install the controller, do I need the agent?** No, the agent is only for client devices. The controller can run alone.

@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -53,7 +55,7 @@ func NewManager(udpAddr string, stunServers []string, secretsDir string, trusted
 		return nil, err
 	}
 
-	serverTLS, clientTLS, err := newTLSConfigs(identity, ca, trusted)
+	serverTLS, clientTLS, err := newTLSConfigs(identity, ca, secretsDir, trusted)
 	if err != nil {
 		return nil, err
 	}
@@ -334,17 +336,33 @@ func loadOrCreateManagerIdentity(secretsDir string) (tls.Certificate, *x509.Cert
 	return tlsCert, caCert, nil
 }
 
-func newTLSConfigs(identity tls.Certificate, caCert *x509.Certificate, trusted []string) (*tls.Config, *tls.Config, error) {
+func newTLSConfigs(identity tls.Certificate, caCert *x509.Certificate, secretsDir string, trusted []string) (*tls.Config, *tls.Config, error) {
 	certPool := x509.NewCertPool()
 	certPool.AddCert(caCert)
 	// Merge trusted PEMs
-	for _, pemPath := range trusted {
-		b, err := os.ReadFile(pemPath)
+	for _, entry := range trusted {
+		e := strings.TrimSpace(entry)
+		if e == "" {
+			continue
+		}
+		if strings.Contains(e, "BEGIN CERTIFICATE") {
+			// treat as inline PEM
+			if !certPool.AppendCertsFromPEM([]byte(e)) {
+				return nil, nil, fmt.Errorf("failed to append trusted inline PEM")
+			}
+			continue
+		}
+		// treat as path (resolve relative to secretsDir)
+		path := e
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(secretsDir, path)
+		}
+		b, err := os.ReadFile(path)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to read trusted cert %s: %w", pemPath, err)
+			return nil, nil, fmt.Errorf("failed to read trusted cert %s: %w", e, err)
 		}
 		if !certPool.AppendCertsFromPEM(b) {
-			return nil, nil, fmt.Errorf("failed to append trusted cert %s", pemPath)
+			return nil, nil, fmt.Errorf("failed to append trusted cert %s", e)
 		}
 	}
 

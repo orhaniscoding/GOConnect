@@ -419,9 +419,6 @@ func (a *API) handleNetworksJoin(w http.ResponseWriter, r *http.Request) (int, a
 		return 400, map[string]string{"error": "missing_id"}
 	}
 
-	// In a real implementation, we would validate the JoinSecret here against a
-	// controller or some other authority. For now, we just store it.
-
 	a.cfgMu.Lock()
 	var target *config.Network
 	for i := range a.cfg.Networks {
@@ -443,8 +440,20 @@ func (a *API) handleNetworksJoin(w http.ResponseWriter, r *http.Request) (int, a
 	if in.Description != "" {
 		target.Description = in.Description
 	}
-	if in.JoinSecret != "" {
-		target.JoinSecret = in.JoinSecret
+	// Enforce join secret validation: if a secret is already declared for this network,
+	// require a non-empty match. If not declared, accept and optionally set it when provided.
+	if strings.TrimSpace(target.JoinSecret) != "" {
+		if strings.TrimSpace(in.JoinSecret) == "" {
+			a.cfgMu.Unlock()
+			return 400, map[string]string{"error": "missing_join_secret"}
+		}
+		if in.JoinSecret != target.JoinSecret {
+			a.cfgMu.Unlock()
+			return 403, map[string]string{"error": "invalid_join_secret"}
+		}
+	} else if strings.TrimSpace(in.JoinSecret) != "" {
+		// Set the secret for future validations if provided during first join
+		target.JoinSecret = strings.TrimSpace(in.JoinSecret)
 	}
 	if target.Address == "" {
 		target.Address = a.ipam.AddressFor(target.ID)
