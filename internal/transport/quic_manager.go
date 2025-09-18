@@ -9,6 +9,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -45,14 +46,17 @@ const (
 	tlsServerName      = "goconnect"
 )
 
-func NewManager(udpAddr string, stunServers []string, _ string, _ []string) (*Manager, error) {
+func NewManager(udpAddr string, stunServers []string, secretsDir string, trusted []string) (*Manager, error) {
 	servers := append([]string(nil), stunServers...)
-	identity, ca, err := loadOrCreateManagerIdentity()
+	identity, ca, err := loadOrCreateManagerIdentity(secretsDir)
 	if err != nil {
 		return nil, err
 	}
 
-	serverTLS, clientTLS := newTLSConfigs(identity, ca)
+	serverTLS, clientTLS, err := newTLSConfigs(identity, ca, trusted)
+	if err != nil {
+		return nil, err
+	}
 
 	return &Manager{
 		addr:            udpAddr,
@@ -300,13 +304,13 @@ func (m *Manager) GetIdentity() tls.Certificate {
 	return m.identity
 }
 
-func loadOrCreateManagerIdentity() (tls.Certificate, *x509.Certificate, error) {
-	caCert, caKey, err := loadOrCreateCA()
+func loadOrCreateManagerIdentity(secretsDir string) (tls.Certificate, *x509.Certificate, error) {
+	caCert, caKey, err := loadOrCreateCA(secretsDir)
 	if err != nil {
 		return tls.Certificate{}, nil, fmt.Errorf("failed to load/create CA: %w", err)
 	}
 
-	hostCert, hostKey, err := loadOrCreateHostCert(caCert, caKey)
+	hostCert, hostKey, err := loadOrCreateHostCert(secretsDir, caCert, caKey)
 	if err != nil {
 		return tls.Certificate{}, nil, fmt.Errorf("failed to load/create host certificate: %w", err)
 	}
@@ -330,9 +334,19 @@ func loadOrCreateManagerIdentity() (tls.Certificate, *x509.Certificate, error) {
 	return tlsCert, caCert, nil
 }
 
-func newTLSConfigs(identity tls.Certificate, caCert *x509.Certificate) (*tls.Config, *tls.Config) {
+func newTLSConfigs(identity tls.Certificate, caCert *x509.Certificate, trusted []string) (*tls.Config, *tls.Config, error) {
 	certPool := x509.NewCertPool()
 	certPool.AddCert(caCert)
+	// Merge trusted PEMs
+	for _, pemPath := range trusted {
+		b, err := os.ReadFile(pemPath)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to read trusted cert %s: %w", pemPath, err)
+		}
+		if !certPool.AppendCertsFromPEM(b) {
+			return nil, nil, fmt.Errorf("failed to append trusted cert %s", pemPath)
+		}
+	}
 
 	serverTLSConfig := &tls.Config{
 		Certificates: []tls.Certificate{identity},
@@ -348,7 +362,7 @@ func newTLSConfigs(identity tls.Certificate, caCert *x509.Certificate) (*tls.Con
 		ServerName:   tlsServerName, // SNI
 	}
 
-	return serverTLSConfig, clientTLSConfig
+	return serverTLSConfig, clientTLSConfig, nil
 }
 
 func (m *Manager) OnNATInfo(f func(s string)) {

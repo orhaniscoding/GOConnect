@@ -24,28 +24,26 @@ const (
 	hostKeyFile  = "host.key"
 )
 
-// getSecretsDir, %ProgramData%\GOConnect\secrets yolunu döndürür ve dizinin var olduğundan emin olur.
-func getSecretsDir() (string, error) {
-	progData := os.Getenv("ProgramData")
-	if progData == "" {
-		return "", fmt.Errorf("ProgramData environment variable not set")
+// getSecretsDir, returns the provided dir and ensures it exists.
+func getSecretsDir(dir string) (string, error) {
+	if dir == "" {
+		return "", fmt.Errorf("secrets directory not set")
 	}
-	secretsDir := filepath.Join(progData, "GOConnect", "secrets")
-	if err := os.MkdirAll(secretsDir, 0750); err != nil {
+	if err := os.MkdirAll(dir, 0750); err != nil {
 		return "", fmt.Errorf("failed to create secrets directory: %w", err)
 	}
-	return secretsDir, nil
+	return dir, nil
 }
 
 // loadOrCreateCA, belirtilen yolda bir CA sertifikası ve anahtarı yükler veya yoksa oluşturur.
-func loadOrCreateCA() (*x509.Certificate, *ecdsa.PrivateKey, error) {
-	secretsDir, err := getSecretsDir()
+func loadOrCreateCA(secretsDir string) (*x509.Certificate, *ecdsa.PrivateKey, error) {
+	dir, err := getSecretsDir(secretsDir)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	caCertPath := filepath.Join(secretsDir, caCertFile)
-	caKeyPath := filepath.Join(secretsDir, caKeyFile)
+	caCertPath := filepath.Join(dir, caCertFile)
+	caKeyPath := filepath.Join(dir, caKeyFile)
 
 	// CA zaten var mı diye kontrol et
 	if _, err := os.Stat(caCertPath); err == nil {
@@ -137,14 +135,14 @@ func loadOrCreateCA() (*x509.Certificate, *ecdsa.PrivateKey, error) {
 }
 
 // loadOrCreateHostCert, CA tarafından imzalanmış bir host sertifikası yükler veya oluşturur.
-func loadOrCreateHostCert(caCert *x509.Certificate, caKey *ecdsa.PrivateKey) (*x509.Certificate, *ecdsa.PrivateKey, error) {
-	secretsDir, err := getSecretsDir()
+func loadOrCreateHostCert(secretsDir string, caCert *x509.Certificate, caKey *ecdsa.PrivateKey) (*x509.Certificate, *ecdsa.PrivateKey, error) {
+	dir, err := getSecretsDir(secretsDir)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	hostCertPath := filepath.Join(secretsDir, hostCertFile)
-	hostKeyPath := filepath.Join(secretsDir, hostKeyFile)
+	hostCertPath := filepath.Join(dir, hostCertFile)
+	hostKeyPath := filepath.Join(dir, hostKeyFile)
 
 	// Host sertifikası zaten var mı?
 	if _, err := os.Stat(hostCertPath); err == nil {
@@ -170,12 +168,22 @@ func loadOrCreateHostCert(caCert *x509.Certificate, caKey *ecdsa.PrivateKey) (*x
 			if err != nil {
 				return nil, nil, fmt.Errorf("failed to parse host certificate: %w", err)
 			}
-
-			key, err := x509.ParseECPrivateKey(decryptedKey)
-			if err != nil {
-				return nil, nil, fmt.Errorf("failed to parse host private key: %w", err)
+			// Check if SANs (DNSNames) include tlsServerName
+			hasSNI := false
+			for _, name := range cert.DNSNames {
+				if name == "goconnect" { // must match tlsServerName
+					hasSNI = true
+					break
+				}
 			}
-			return cert, key, nil
+			if hasSNI {
+				key, err := x509.ParseECPrivateKey(decryptedKey)
+				if err != nil {
+					return nil, nil, fmt.Errorf("failed to parse host private key: %w", err)
+				}
+				return cert, key, nil
+			}
+			// else: fall through and regenerate
 		}
 	}
 
@@ -202,6 +210,7 @@ func loadOrCreateHostCert(caCert *x509.Certificate, caKey *ecdsa.PrivateKey) (*x
 		KeyUsage:    x509.KeyUsageDigitalSignature,
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
 		IPAddresses: []net.IP{net.ParseIP("127.0.0.1")},
+		DNSNames:    []string{"goconnect", hostname},
 	}
 
 	certBytes, err := x509.CreateCertificate(rand.Reader, &template, caCert, &privKey.PublicKey, caKey)

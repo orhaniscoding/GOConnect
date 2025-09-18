@@ -1,9 +1,10 @@
 package webuiassets
 
 import (
-    "embed"
+	"embed"
 )
 
-// Embed required webui assets (recursive for i18n)
-//go:embed index.html app.js styles.css i18n/*
+// Embed required webui assets (recursive for i18n and all JS modules)
+//
+//go:embed index.html styles.css app.js *.js i18n/*
 var FS embed.FS
