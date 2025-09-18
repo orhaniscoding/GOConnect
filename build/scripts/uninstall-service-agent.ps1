@@ -1,7 +1,7 @@
 # Uninstall GOConnect Agent Service
 # Usage: Run this script as Administrator
 
-$ServiceName = "GOConnectService"
+$ServiceName = "GOConnect"
 
 if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
     Write-Host "Stopping $ServiceName..."

@@ -1,7 +1,7 @@
 # Install GOConnect Agent as a Windows Service
 # Usage: Run this script as Administrator
 
-$ServiceName = "GOConnectService"
+$ServiceName = "GOConnect"
 $ServiceDisplayName = "GOConnect Agent Service"
 $ServiceDescription = "GOConnect VPN Agent."
 $ExePath = Join-Path $PSScriptRoot "..\..\bin\goconnect-service.exe"
