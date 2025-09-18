@@ -578,17 +578,19 @@ func (a *API) handleSettings(w http.ResponseWriter, r *http.Request) (int, any) 
 		relayCopy := append([]string(nil), a.cfg.RelayURLs...)
 		peersCopy := append([]string(nil), a.cfg.Peers...)
 		stunCopy := append([]string(nil), a.cfg.StunServers...)
+		trustedCopy := append([]string(nil), a.cfg.TrustedPeerCerts...)
 		settings := core.Settings{
-			Port:          a.cfg.Port,
-			MTU:           a.cfg.MTU,
-			LogLevel:      a.cfg.LogLevel,
-			Language:      a.cfg.Language,
-			Autostart:     a.cfg.Autostart,
-			ControllerURL: a.cfg.ControllerURL,
-			RelayURLs:     relayCopy,
-			UDPPort:       a.cfg.UDPPort,
-			Peers:         peersCopy,
-			StunServers:   stunCopy,
+			Port:             a.cfg.Port,
+			MTU:              a.cfg.MTU,
+			LogLevel:         a.cfg.LogLevel,
+			Language:         a.cfg.Language,
+			Autostart:        a.cfg.Autostart,
+			ControllerURL:    a.cfg.ControllerURL,
+			RelayURLs:        relayCopy,
+			UDPPort:          a.cfg.UDPPort,
+			Peers:            peersCopy,
+			StunServers:      stunCopy,
+			TrustedPeerCerts: trustedCopy,
 		}
 		if err := config.Save(a.cfg); err != nil {
 			a.cfgMu.Unlock()

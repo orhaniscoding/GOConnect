@@ -57,6 +57,40 @@ func TestMemberPreferencesVersionFlow(t *testing.T) {
 	client.doJSON(http.MethodPut, "/api/v1/networks/n1/me/preferences", body, &mpConflict, 409)
 }
 
+func TestSettingsPreservesTrustedPeerCerts(t *testing.T) {
+	api := testAPI(t)
+	srv := api.Serve(":0", "")
+	client := newTestClient(t, srv)
+
+	// PUT settings with trusted_peer_certs
+	input := map[string]any{
+		"port":               2537,
+		"mtu":                1280,
+		"log_level":          "info",
+		"language":           "en",
+		"autostart":          true,
+		"controller_url":     "",
+		"relay_urls":         []string{},
+		"udp_port":           45820,
+		"peers":              []string{},
+		"stun_servers":       []string{"stun.l.google.com:19302"},
+		"trusted_peer_certs": []string{"-----BEGIN CERTIFICATE-----\nMIIB...test...\n-----END CERTIFICATE-----", "trusted.pem"},
+	}
+	var putResp map[string]any
+	client.doJSON(http.MethodPut, "/api/settings", input, &putResp, 200)
+
+	// GET settings and verify trusted certs are preserved in the snapshot
+	var got core.Settings
+	client.doJSON(http.MethodGet, "/api/settings", nil, &got, 200)
+	if len(got.TrustedPeerCerts) != 2 {
+		t.Fatalf("expected 2 trusted cert entries, got %d", len(got.TrustedPeerCerts))
+	}
+	if got.TrustedPeerCerts[0] != input["trusted_peer_certs"].([]string)[0] ||
+		got.TrustedPeerCerts[1] != input["trusted_peer_certs"].([]string)[1] {
+		t.Fatalf("trusted certs mismatch: %+v", got.TrustedPeerCerts)
+	}
+}
+
 // --- test client helper handling CSRF cookie/header ---
 type testClient struct {
 	t    *testing.T

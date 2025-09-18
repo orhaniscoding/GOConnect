@@ -372,6 +372,9 @@ async function loadSettings() {
     document.getElementById("udp_port").value = s.UDPPort || 45820;
     document.getElementById("peers").value = (s.Peers || []).join(",");
     document.getElementById("stun_servers").value = (s.StunServers || []).join(",");
+    const tpc = (s.TrustedPeerCerts || []).join("\n\n");
+    const tpcEl = document.getElementById("trusted_peer_certs");
+    if (tpcEl) tpcEl.value = tpc;
   } catch (err) {
     console.error("settings load", err);
   }
@@ -451,12 +454,17 @@ function bindActions() {
           .split(",")
           .map((s) => s.trim())
           .filter(Boolean),
+        trusted_peer_certs: (document.getElementById("trusted_peer_certs")?.value || "")
+          .split(/\n{2,}/)
+          .map((s) => s.trim())
+          .filter(Boolean),
       };
       try {
         await put("/api/settings", body);
         await loadI18n();
         await loadStatus();
         await loadNetworks();
+        await loadSettings();
       } catch (err) {
         console.error("settings", err);
         alert(`Settings update failed: ${err.message || err}`);
