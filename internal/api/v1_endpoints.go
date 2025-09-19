@@ -8,6 +8,8 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+
+	v10 "github.com/go-playground/validator/v10"
 )
 
 // EffectivePolicy is derived view of settings + preferences.
@@ -45,6 +47,18 @@ func (a *API) handleMemberPreferences(w http.ResponseWriter, r *http.Request) (i
 		var in MemberPreferencesState
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			return errPayload(400, "bad_json", "invalid json")
+		}
+		// validate payload if enabled
+		if err := a.validatePayload(in); err != nil {
+			details := err.Error()
+			if verrs, ok := err.(v10.ValidationErrors); ok {
+				arr := make([]string, 0, len(verrs))
+				for _, fe := range verrs {
+					arr = append(arr, fe.Namespace()+": "+fe.Tag())
+				}
+				return errPayloadWithDetails(400, "invalid_payload", "validation failed", arr)
+			}
+			return errPayloadWithDetails(400, "invalid_payload", "validation failed", details)
 		}
 		if in.Nickname == "" {
 			in.Nickname = "me"
@@ -122,6 +136,17 @@ func (a *API) handleNetworkSettings(w http.ResponseWriter, r *http.Request) (int
 		var in NetworkSettingsState
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			return errPayload(400, "bad_json", "invalid json")
+		}
+		if err := a.validatePayload(in); err != nil {
+			details := err.Error()
+			if verrs, ok := err.(v10.ValidationErrors); ok {
+				arr := make([]string, 0, len(verrs))
+				for _, fe := range verrs {
+					arr = append(arr, fe.Namespace()+": "+fe.Tag())
+				}
+				return errPayloadWithDetails(400, "invalid_payload", "validation failed", arr)
+			}
+			return errPayloadWithDetails(400, "invalid_payload", "validation failed", details)
 		}
 		updated, err := a.updateNetworkSettings(nid, &in)
 		if err != nil {

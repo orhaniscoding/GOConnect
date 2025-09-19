@@ -5,6 +5,8 @@
 ![GitHub release (latest by date)](https://img.shields.io/github/v/release/orhaniscoding/GOConnect)
 ![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/orhaniscoding/GOConnect/ci.yml?branch=main)
 ![Platform](https://img.shields.io/badge/platform-Windows-blue)
+<!-- Optional (enable after integrating Codecov or similar): -->
+<!-- ![Coverage](https://img.shields.io/codecov/c/github/orhaniscoding/GOConnect?label=coverage) -->
 
 ## 🇹🇷 Türkçe Açıklama
 
@@ -26,6 +28,158 @@ GOConnect, Windows için geliştirilmiş, merkezi controller destekli, modern ve
 - `secrets/controller_token.txt` — Controller token dosyası (otomatik oluşur)
 - `webui/` — Web arayüzü dosyaları (gömülü gelir)
 - `internal/` — Backend ve ağ yönetim kodları
+
+### Derleme ve Çalıştırma (Geliştiriciler)
+
+Gereksinimler: Go 1.23+, Windows 10/11 (PowerShell ile)
+
+- Derleme (controller):
+   ```powershell
+   go build -o bin/goconnectcontroller.exe ./cmd/goconnectcontroller
+   ```
+- Derleme (agent/service):
+   ```powershell
+   go build -o bin/goconnect-service.exe ./cmd/goconnectservice
+   ```
+- Wintun ile derleme (sadece compile smoke):
+   ```powershell
+   go build -tags=wintun ./...
+   ```
+- Servisi geliştirme modunda çalıştır:
+   ```powershell
+   go run ./cmd/goconnectservice
+   # veya Wintun ile
+   go run -tags=wintun ./cmd/goconnectservice
+   ```
+
+HTTP UI/API varsayılan olarak http://127.0.0.1:2537 adresinde açılır.
+
+### Yapılandırma (config.yaml) Örneği
+
+Yol: `%ProgramData%/GOConnect/config/config.yaml`
+
+```yaml
+port: 2537
+mtu: 1280
+language: en
+controller_url: "http://127.0.0.1:8080"  # opsiyonel, controller proxy
+stun_servers: ["stun.l.google.com:19302"]
+trusted_peer_certs: []
+api:
+   auth: bearer
+   bearer_token: "changeme-local-owner"
+   rate_limit:
+      rps: 10
+      burst: 20
+   validation: true
+logging:
+   format: json  # json | text
+   level: info   # trace|debug|info|warn|error
+metrics:
+   enabled: false
+   addr: 127.0.0.1:9090  # /metrics Prometheus endpoint
+diag:
+   mtu_probe_max: 1500
+updater:
+   enabled: false
+   repo: "orhaniscoding/GOConnect"
+   require_signature: false
+   public_key: ""
+networks:
+   - id: "home"
+      name: "Home"
+      joined: true
+      address: "10.83.0.2/24"
+      join_secret: "optional"
+```
+
+Notlar:
+- API güvenliği: Bearer token gereklidir. Değiştiriniz ve gizli tutunuz.
+- Oran sınırlama: `api.rate_limit` ile RPS/Burst ayarlanır.
+- Günlükler: `%ProgramData%/GOConnect/logs/agent.log` (JSON varsayılan).
+- Metrics: `metrics.enabled: true` ise `/metrics` (Prometheus formatı) yayınlanır.
+
+### Diagnostik (CLI ve API)
+
+- CLI (JSON çıktı, STUN + MTU):
+   ```powershell
+   bin/goconnect-service.exe diag
+   ```
+   Örnek çıktı:
+   ```json
+   {
+      "stun_ok": true,
+      "public_endpoint": "203.0.113.10:51820",
+      "stun_server": "stun.l.google.com:19302",
+      "stun_rtt_ms": 24,
+      "mtu_ok": true,
+      "mtu": 1500,
+      "mtu_source": "interface:Ethernet",
+      "errors": [],
+      "duration_ms": 53
+   }
+   ```
+
+- API (POST, CSRF ve Bearer gerekir):
+   ```powershell
+   # CSRF çerezini almak için önce GET
+   Invoke-WebRequest http://127.0.0.1:2537/api/status -OutFile $null -SessionVariable S
+   $csrf = $S.Cookies.GetCookies('http://127.0.0.1:2537')['goc_csrf'].Value
+   Invoke-RestMethod -Method Post http://127.0.0.1:2537/api/diag/run -Headers @{ 'Authorization'='Bearer changeme-local-owner'; 'X-CSRF-Token'=$csrf }
+   ```
+
+### Updater (Güncelleme)
+
+`config.yaml` altında `updater.enabled: true` ve `updater.repo: "owner/repo"` tanımlandığında:
+
+- Sürüm kontrolü:
+   ```powershell
+   bin/goconnect-service.exe self-update --check
+   ```
+- Uygula (staging):
+   ```powershell
+   bin/goconnect-service.exe self-update
+   ```
+
+Windows'ta çalışan exe kilitli olabileceği için yeni sürüm `goconnect-service.exe.new` olarak aynı klasöre indirilir; mümkünse atomik olarak `.bak` ile değiş-tokuş yapılır. Kilit varsa `.update-staged` işaret dosyası bırakılır ve bir sonraki yeniden başlatmada etkinleşir.
+
+### Controller Store (Varsayılan: SQLite)
+
+`goconnectcontroller.exe` depolama motoru varsayılan olarak SQLite kullanır. Ortam değişkenleri ile değiştirilebilir:
+
+```powershell
+$env:GOCONNECT_STORE_TYPE = 'memory'   # 'sqlite' | 'memory' (varsayılan: sqlite)
+$env:GOCONNECT_DATA_DIR = '.\data'     # sqlite dosyaları için dizin
+bin/goconnectcontroller.exe
+```
+
+### Güvenlik Notları
+
+- API Bearer Token: `api.bearer_token` güçlü bir değer olmalı, yalnızca yerel yönetim için kullanılmalıdır.
+- CSRF koruması: Tüm değiştirici POST istekleri `X-CSRF-Token` ister (çerezden alınır).
+- Gelecek: mTLS desteği planlanmaktadır.
+- Sırlar ve anahtarlar: Windows DPAPI ile şifreleme desteği mevcut (makine-ölçekli).
+- Güvenilir eş sertifikaları: `trusted_peer_certs` dosya yolu veya satır-içi PEM destekler.
+
+### Test ve CI
+
+Tüm testler:
+```powershell
+go test ./... -count=1
+```
+
+Kapsam (coverage) profili ile:
+```powershell
+go test -count=1 -covermode=atomic -coverpkg=./... -coverprofile=coverage.out ./...
+go tool cover -func=coverage.out
+```
+
+CI (GitHub Actions) iş akışları:
+- Windows: vet + golangci-lint + build + test + kapsam eşiği (>= %60)
+- Windows (Wintun): `go build -tags=wintun ./...` (compile-only)
+- Linux (opsiyonel): `go test -race`
+
+---
 
 ### Kullanım Senaryoları ve Kurulum Rehberi
 
@@ -124,6 +278,155 @@ GOConnect is a modern, secure, controller-based overlay network (VPN) solution f
 - `webui/` — Web UI files (embedded)
 - `internal/` — Backend and network management code
 
+### Build & Run (Developers)
+
+Requirements: Go 1.23+, Windows 10/11 with PowerShell
+
+- Build controller:
+   ```powershell
+   go build -o bin/goconnectcontroller.exe ./cmd/goconnectcontroller
+   ```
+- Build agent/service:
+   ```powershell
+   go build -o bin/goconnect-service.exe ./cmd/goconnectservice
+   ```
+- Build with Wintun tag (compile smoke):
+   ```powershell
+   go build -tags=wintun ./...
+   ```
+- Run service in dev mode:
+   ```powershell
+   go run ./cmd/goconnectservice
+   # or with Wintun
+   go run -tags=wintun ./cmd/goconnectservice
+   ```
+
+The HTTP UI/API starts at http://127.0.0.1:2537 by default.
+
+### Configuration (config.yaml) Example
+
+Path: `%ProgramData%/GOConnect/config/config.yaml`
+
+```yaml
+port: 2537
+mtu: 1280
+language: en
+controller_url: "http://127.0.0.1:8080"
+stun_servers: ["stun.l.google.com:19302"]
+trusted_peer_certs: []
+api:
+   auth: bearer
+   bearer_token: "changeme-local-owner"
+   rate_limit:
+      rps: 10
+      burst: 20
+   validation: true
+logging:
+   format: json
+   level: info
+metrics:
+   enabled: false
+   addr: 127.0.0.1:9090
+diag:
+   mtu_probe_max: 1500
+updater:
+   enabled: false
+   repo: "orhaniscoding/GOConnect"
+   require_signature: false
+   public_key: ""
+networks:
+   - id: "home"
+      name: "Home"
+      joined: true
+      address: "10.83.0.2/24"
+      join_secret: "optional"
+```
+
+Notes:
+- API security: Bearer token must be set and kept secret for local admin.
+- Rate limit: tune via `api.rate_limit`.
+- Logs: `%ProgramData%/GOConnect/logs/agent.log` (JSON by default).
+- Metrics: enabling `metrics.enabled` exposes a Prometheus `/metrics` endpoint.
+
+### Diagnostics (CLI and API)
+
+- CLI (JSON output):
+   ```powershell
+   bin/goconnect-service.exe diag
+   ```
+   Sample:
+   ```json
+   {
+      "stun_ok": true,
+      "public_endpoint": "203.0.113.10:51820",
+      "stun_server": "stun.l.google.com:19302",
+      "stun_rtt_ms": 24,
+      "mtu_ok": true,
+      "mtu": 1500,
+      "mtu_source": "interface:Ethernet",
+      "errors": [],
+      "duration_ms": 53
+   }
+   ```
+
+- API (POST, requires CSRF + Bearer):
+   ```powershell
+   Invoke-WebRequest http://127.0.0.1:2537/api/status -OutFile $null -SessionVariable S
+   $csrf = $S.Cookies.GetCookies('http://127.0.0.1:2537')['goc_csrf'].Value
+   Invoke-RestMethod -Method Post http://127.0.0.1:2537/api/diag/run -Headers @{ 'Authorization'='Bearer changeme-local-owner'; 'X-CSRF-Token'=$csrf }
+   ```
+
+### Updater
+
+With `updater.enabled: true` and a configured `updater.repo` (GitHub `owner/repo`):
+
+- Check for updates:
+   ```powershell
+   bin/goconnect-service.exe self-update --check
+   ```
+- Apply update (staged swap):
+   ```powershell
+   bin/goconnect-service.exe self-update
+   ```
+
+On Windows, the running binary may be locked; the updater downloads to `goconnect-service.exe.new` and attempts an atomic swap with a `.bak` backup. If locked, it leaves `.new` plus a `.update-staged` marker for activation on restart.
+
+### Controller Store (Default: SQLite)
+
+`goconnectcontroller.exe` defaults to SQLite. Override via env:
+
+```powershell
+$env:GOCONNECT_STORE_TYPE = 'memory'   # 'sqlite' | 'memory' (default: sqlite)
+$env:GOCONNECT_DATA_DIR = '.\data'
+bin/goconnectcontroller.exe
+```
+
+### Security Notes
+
+- API bearer token: configure `api.bearer_token` (strong) for local admin.
+- CSRF protection: mutating POSTs require `X-CSRF-Token` (cookie-provided).
+- Future: mTLS support is planned.
+- Secrets: Windows DPAPI is used for machine-bound encryption where applicable.
+- Trusted peer certs: `trusted_peer_certs` accepts file paths or inline PEM.
+
+### Testing & CI
+
+Run all tests:
+```powershell
+go test ./... -count=1
+```
+
+With coverage profile:
+```powershell
+go test -count=1 -covermode=atomic -coverpkg=./... -coverprofile=coverage.out ./...
+go tool cover -func=coverage.out
+```
+
+CI (GitHub Actions):
+- Windows: vet + golangci-lint + build + tests + coverage gate (>= 60%)
+- Windows (Wintun compile-only): `go build -tags=wintun ./...`
+- Linux (optional): `go test -race`
+
 ### Usage Scenarios & Installation Guide
 
 #### 1. For Controller-Only Users (Server/VPS)
@@ -194,6 +497,16 @@ You can install both binaries and their scripts on the same machine and follow t
 - Build controller: `go build -o bin/goconnectcontroller.exe ./cmd/goconnectcontroller`
 - Build agent: `go build -o bin/goconnect-service.exe ./cmd/goconnectservice`
 - Web UI and backend code are embedded, no extra steps needed
+
+#### Windows + Wintun builds
+- Compile-only check for Wintun path:
+   - `go build -tags=wintun ./...`
+- Run service with Wintun (local dev):
+   - PowerShell: `build\scripts\run-service-wintun.ps1`
+   - Note: Bringing up the actual TUN interface may require running PowerShell as Administrator and Wintun driver/DLL installed.
+- Optional smoke tool:
+   - Build: `go build -o bin\tunsmoke.exe ./cmd/tunsmoke`
+   - Run: `bin\tunsmoke.exe` (add `-loopback` to try a simple UDP loopback if the interface IP is configured)
 
 ### License
 Licensed under the GPL 3.0 License. See [LICENSE](LICENSE) for details.

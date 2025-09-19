@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: Cache Go build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+      - name: Go vet
+        run: go vet ./...
+      - name: Lint (golangci-lint)
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=5m
+      - name: Build
+        run: go build ./...
+      - name: Test (no race) with coverage (all pkgs)
+        run: go test -count=1 -covermode=atomic -coverpkg=./... -coverprofile=coverage.out ./...
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-windows
+          path: coverage.out
+      - name: Coverage gate (min 60%)
+        shell: pwsh
+        run: |
+          $report = go tool cover -func=coverage.out
+          if ($LASTEXITCODE -ne 0) { Write-Error "cover tool failed"; exit 1 }
+          $report | Out-Host
+          $totalLine = ($report -split "`n") | Where-Object { $_ -match '^total:\s+\(statements\)\s+([0-9.]+)%' } | Select-Object -First 1
+          if (-not $totalLine) { Write-Error "Total coverage not found in report"; exit 1 }
+          $pct = [double]([regex]::Match($totalLine, '([0-9.]+)%').Groups[1].Value)
+          $min = 60.0
+          if ($pct -lt $min) { Write-Error "Coverage $pct% is below threshold $min%"; exit 1 }
+          Write-Host "Coverage OK: $pct% >= $min%"
+      - name: Example JSON log line
+        shell: pwsh
+        run: |
+          $ts = Get-Date -Format o
+          Write-Output ("{""ts"":""$ts"",""lvl"":""info"",""msg"":""ci-run""}")
+
+  build-wintun:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: Build with wintun tag (compile smoke)
+        run: go build -tags=wintun ./...
+
+  test-linux-race:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: Cache Go build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+      - name: Build
+        run: go build ./...
+      - name: Test (race)
+        run: go test ./... -race -count=1

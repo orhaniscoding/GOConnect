@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	yaml "gopkg.in/yaml.v3"
 )
@@ -20,18 +21,75 @@ type Network struct {
 }
 
 type Config struct {
-	Port             int       `yaml:"port"`
-	MTU              int       `yaml:"mtu"`
-	LogLevel         string    `yaml:"log_level"`
-	Language         string    `yaml:"language"`
-	Autostart        bool      `yaml:"autostart"`
-	ControllerURL    string    `yaml:"controller_url"`
-	RelayURLs        []string  `yaml:"relay_urls"`
-	UDPPort          int       `yaml:"udp_port"`
-	Peers            []string  `yaml:"peers"`
-	StunServers      []string  `yaml:"stun_servers"`
-	TrustedPeerCerts []string  `yaml:"trusted_peer_certs"`
-	Networks         []Network `yaml:"networks"`
+	Port             int           `yaml:"port"`
+	MTU              int           `yaml:"mtu"`
+	LogLevel         string        `yaml:"log_level"`
+	Language         string        `yaml:"language"`
+	Autostart        bool          `yaml:"autostart"`
+	EnableTun        bool          `yaml:"enable_tun"`
+	ControllerURL    string        `yaml:"controller_url"`
+	RelayURLs        []string      `yaml:"relay_urls"`
+	UDPPort          int           `yaml:"udp_port"`
+	Peers            []string      `yaml:"peers"`
+	StunServers      []string      `yaml:"stun_servers"`
+	TrustedPeerCerts []string      `yaml:"trusted_peer_certs"`
+	Networks         []Network     `yaml:"networks"`
+	Core             CoreConfig    `yaml:"core"`
+	Api              ApiConfig     `yaml:"api"`
+	Diag             DiagConfig    `yaml:"diag"`
+	Updater          UpdaterConfig `yaml:"updater"`
+	Logging          LoggingConfig `yaml:"logging"`
+	Metrics          MetricsConfig `yaml:"metrics"`
+}
+
+type CoreConfig struct {
+	BufferPackets   int           `yaml:"buffer_packets"`
+	MaxFrameBytes   int           `yaml:"max_frame_bytes"`
+	ShutdownTimeout time.Duration `yaml:"shutdown_timeout"`
+}
+
+// ApiConfig controls local HTTP API security, rate limits, and validation.
+type ApiConfig struct {
+	Auth        string       `yaml:"auth"`         // "bearer" | "mtls" (future)
+	BearerToken string       `yaml:"bearer_token"` // static owner token for bearer auth
+	RateLimit   ApiRateLimit `yaml:"rate_limit"`   // requests per second limits
+	Validation  bool         `yaml:"validation"`   // enable payload validation
+}
+
+type ApiRateLimit struct {
+	RPS   int `yaml:"rps"`
+	Burst int `yaml:"burst"`
+}
+
+// DiagConfig controls diagnostics probing parameters.
+type DiagConfig struct {
+	// MtuProbeMax is the upper bound used when probing link MTU.
+	// Typical ethernet MTU is 1500; set higher only if your environment supports jumbo frames.
+	MtuProbeMax int `yaml:"mtu_probe_max"`
+}
+
+// UpdaterConfig controls self-update behavior.
+type UpdaterConfig struct {
+	// Enabled toggles the updater feature.
+	Enabled bool `yaml:"enabled"`
+	// Repo is the GitHub repository in the form "owner/repo" to check releases from.
+	Repo string `yaml:"repo"`
+	// RequireSignature enforces signature verification for update artifacts when true.
+	RequireSignature bool `yaml:"require_signature"`
+	// PublicKey is the PEM-encoded public key used to verify signatures when RequireSignature is true.
+	PublicKey string `yaml:"public_key"`
+}
+
+// LoggingConfig controls format and level of logs.
+type LoggingConfig struct {
+	Format string `yaml:"format"` // "json" | "text"
+	Level  string `yaml:"level"`  // trace|debug|info|warn|error
+}
+
+// MetricsConfig controls optional Prometheus-style metrics endpoint.
+type MetricsConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Addr    string `yaml:"addr"`
 }
 
 const (
@@ -47,12 +105,41 @@ func Default(language string) *Config {
 		LogLevel:         DefaultLogLevel,
 		Language:         language,
 		Autostart:        true,
+		EnableTun:        true,
 		RelayURLs:        []string{},
 		UDPPort:          45820,
 		Peers:            []string{},
 		StunServers:      []string{"stun.l.google.com:19302"},
 		TrustedPeerCerts: []string{},
 		Networks:         []Network{},
+		Core: CoreConfig{
+			BufferPackets:   256,
+			MaxFrameBytes:   65535,
+			ShutdownTimeout: 3 * time.Second,
+		},
+		Api: ApiConfig{
+			Auth:        "bearer",
+			BearerToken: "testtoken",
+			RateLimit:   ApiRateLimit{RPS: 10, Burst: 20},
+			Validation:  true,
+		},
+		Diag: DiagConfig{
+			MtuProbeMax: 1500,
+		},
+		Updater: UpdaterConfig{
+			Enabled:          false,
+			Repo:             "",
+			RequireSignature: false,
+			PublicKey:        "",
+		},
+		Logging: LoggingConfig{
+			Format: "json",
+			Level:  "info",
+		},
+		Metrics: MetricsConfig{
+			Enabled: false,
+			Addr:    "127.0.0.1:9090",
+		},
 	}
 }
 
@@ -121,6 +208,62 @@ func Load() (*Config, error) {
 	if cfg.TrustedPeerCerts == nil {
 		cfg.TrustedPeerCerts = []string{}
 	}
+	// Core defaults if zero/unset
+	if cfg.Core.BufferPackets <= 0 {
+		cfg.Core.BufferPackets = 256
+	}
+	if cfg.Core.MaxFrameBytes <= 0 {
+		cfg.Core.MaxFrameBytes = 65535
+	}
+	if cfg.Core.ShutdownTimeout <= 0 {
+		cfg.Core.ShutdownTimeout = 3 * time.Second
+	}
+	// API defaults if zero/unset
+	if strings.TrimSpace(cfg.Api.Auth) == "" {
+		cfg.Api.Auth = "bearer"
+	}
+	if cfg.Api.RateLimit.RPS <= 0 {
+		cfg.Api.RateLimit.RPS = 10
+	}
+	if cfg.Api.RateLimit.Burst <= 0 {
+		cfg.Api.RateLimit.Burst = 20
+	}
+	// If Validation bool is left as default (false), set to true explicitly
+	// unless user specified false in config file. We can't distinguish absent vs false with yaml easily,
+	// so we assume false means user choice; only set true if both RPS and Burst were zero indicating defaults.
+	// To keep behavior predictable, ensure Validation is true when Auth is bearer and BearerToken set by default.
+	if cfg.Api.Validation == false && strings.TrimSpace(cfg.Api.BearerToken) == "" {
+		cfg.Api.Validation = true
+	}
+	// Diag defaults
+	if cfg.Diag.MtuProbeMax <= 0 {
+		cfg.Diag.MtuProbeMax = 1500
+	}
+	// Logging defaults
+	lf := strings.ToLower(strings.TrimSpace(cfg.Logging.Format))
+	if lf == "" {
+		cfg.Logging.Format = "json"
+	} else if lf != "json" && lf != "text" {
+		cfg.Logging.Format = "json"
+	}
+	lvl := strings.ToLower(strings.TrimSpace(cfg.Logging.Level))
+	if lvl == "" {
+		// Back-compat: use top-level LogLevel if set
+		lv2 := strings.ToLower(strings.TrimSpace(cfg.LogLevel))
+		if lv2 != "" {
+			cfg.Logging.Level = lv2
+		} else {
+			cfg.Logging.Level = "info"
+		}
+	}
+	// Metrics defaults
+	if strings.TrimSpace(cfg.Metrics.Addr) == "" {
+		cfg.Metrics.Addr = "127.0.0.1:9090"
+	}
+	// Updater defaults - keep conservative
+	// Enabled: default false unless explicitly enabled in config.
+	// Repo: leave empty unless user specifies (prevents accidental network calls).
+	// RequireSignature/PublicKey remain as provided.
 	return cfg, nil
 }
 

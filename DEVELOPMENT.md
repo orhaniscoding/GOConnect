@@ -1,150 +1,158 @@
 # GOConnect Development Guide
 
-This document complements the README with workflow notes for contributors.
+This guide helps contributors get productive in ~15 minutes with a working dev environment, a local smoke test, and awareness of build, run, security, and testing flows.
 
-## Prerequisites
-* Go 1.22+
-* Windows (primary target). Linux/macOS builds work for most non-TUN pieces (DPAPI becomes a no-op; service stub may differ).
-* (Optional) Wintun driver + DLL for `-tags=wintun` builds.
+## 0) Prerequisites
 
-## Repository Layout (Developer Focus)
-* `cmd/goconnectservice` – Primary long‑running agent (HTTP API + transport + persistence)
-* `internal/api` – Handlers, versioned `/api/v1` resources, persistence of network scoped state
-* `internal/core` – High‑level orchestration points
-* `internal/tun` – Wintun + stub (guards via build tags)
-* `internal/transport` – QUIC peer/session manager (STUN assisted)
-* `webui/` – Static UI (served from disk or embedded)
-* `build/scripts` – Install/uninstall PowerShell helpers for Windows service mode
-* `stubs/` – Offline fallback modules for service integration (legacy systray removed)
+- Windows 10/11
+- Go 1.23+
+- PowerShell (default on Windows)
+- Optional: Wintun driver/DLL if you want to exercise real TUN (not required for basic dev)
 
-## VS Code Integration
-Configured under `.vscode/`:
+## 1) Clone and Build
 
-### Tasks (`tasks.json`)
-* Build Service – `go build -o bin/goconnect-service.exe ./cmd/goconnectservice`
-* Build All – `go build ./...` (may fail if experimental folders require extra deps; prefer service build for quick cycles)
-* Test (short) – `go test ./... -run Test -count=1`
-* Run Service (dev) – `go run ./cmd/goconnectservice`
-* Run Service (wintun) – `go run -tags=wintun ./cmd/goconnectservice`
-
-### Launch Configurations (`launch.json`)
-* GOConnect Service (debug)
-* GOConnect Service (wintun tag)
-
-Set breakpoints in any `internal/*` package files; delve attaches automatically with the Go extension.
-
-## Persistence Model
-Network‑scoped versioned documents:
-* Network Settings: `/api/v1/networks/{id}/settings`
-* Member Preferences: `/api/v1/networks/{id}/me/preferences`
-
-On successful PUT the entire in‑memory map is serialized atomically to:
-`%ProgramData%/GOConnect/state/state.json`
-
-Concurrency control: optimistic – client must echo `Version`. The server increments after successful mutation. Stale writes get `409` with JSON error payload `{"error":"version_conflict"}`.
-
-## Testing
-## Metrics Endpoint
-`/api/metrics` currently returns a JSON snapshot (not Prometheus). Consider adding a separate `/metrics` in Prometheus text format later.
-
-## Continuous Integration
-GitHub Actions workflow (`.github/workflows/ci.yml`) runs build, `go vet`, and tests on pushes/PRs to `main` (Windows runner).
-
-Currently limited unit tests exist around concurrency logic in `internal/api`. Add more coverage with focus on:
-* Effective policy derivation edge cases
-* Persistence load failures (corrupted JSON) – ensure graceful fallback
-* TUN initialization failure paths (when Wintun missing)
-
-Run all tests:
-```
-go test ./...
+```powershell
+git clone https://github.com/orhaniscoding/GOConnect.git
+cd GOConnect
+go build -o bin/goconnectcontroller.exe ./cmd/goconnectcontroller
+go build -o bin/goconnect-service.exe ./cmd/goconnectservice
+# (optional) compile-only Wintun path
+go build -tags=wintun ./...
 ```
 
-## Adding New Fields to Versioned Documents
-1. Extend the struct(s) in `internal/api/api.go` (NetworkSettingsState / MemberPreferencesState)
-2. Update copy logic in `v1_endpoints.go` update functions
-3. Update OpenAPI schema (`openapi.yaml`)
-4. Adjust Web UI panels to send/display the new fields
-5. Add tests validating round‑trip + persistence
+## 2) First Run (Dev Mode)
 
-## Error Handling Pattern
-All structured errors should use the helper returning:
-```json
-{"error":"code","message":"human readable explanation"}
-```
-HTTP status code aligns with error type (400/404/409/500).
+Start the service in the foreground and open the Web UI:
 
-## Windows Service Workflow
-Install (admin PS):
-```
-build\scripts\install-service.ps1 -ExePath "$(Resolve-Path bin/goconnect-service.exe)"
-```
-Uninstall:
-```
-build\scripts\uninstall-service.ps1
-```
-Logs: `%ProgramData%/GOConnect/logs/agent.log`
-
-## Internationalisation
-Add new string keys in both `internal/i18n/*.json` and `webui/i18n/*.json`. Avoid runtime panics by always providing both languages.
-
-## Contribution Guidelines (Lightweight)
-* Keep PRs small & focused.
-* Run `go vet ./...` and tests before submission.
-* Update README / DEVELOPMENT.md when changing build, run, or persistence behavior.
-* Maintain consistent error format; avoid returning raw internal error strings to clients – wrap with user‑friendly message.
-
-## Future Enhancement Ideas
-* Rich effective policy (merge network ACL + member overrides + relay permissions)
-* Configurable auth layer (token or local OS integration) for API
-* Structured logging (JSON) behind a build flag or config switch
-* Metrics endpoint (Prometheus format) for observability
-* Automated upgrade channel (real implementation of updater stub)
-
-### Network Chat (Experimental)
-
-Per-network chat channel for functional testing and UI validation:
-
-Endpoints (all under `/api/v1/networks/{id}`):
-
-* `GET /chat/messages` – Returns last (max 200) messages.
-* `POST /chat/messages` – Send a message `{ "text": "hello" }` (requires network `AllowChat` and member `ChatEnabled`).
-* `GET /chat/stream` – Server Sent Events (SSE) stream; each event `data:` line is a JSON encoded ChatMessage.
-
-Controls:
-
-* Network owner (or current placeholder owner logic) toggles chat via `Allow Chat` in Network Settings panel.
-* Member enables personal participation with `Chat Enabled` in My Preferences panel.
-
-Message object schema:
-
-```
-{
-	"id": string,
-	"network_id": string,
-	"from": string,
-	"text": string,
-	"at": RFC3339 timestamp (UTC)
-}
+```powershell
+go run ./cmd/goconnectservice
 ```
 
-Retention & Persistence: Last 200 messages per network retained and now persisted in `state.json` (reloaded on restart).
+Open: http://127.0.0.1:2537
 
-UI:
+Logs are written to `%ProgramData%/GOConnect/logs/agent.log` (JSON by default).
 
-* New Chat sidebar item.
-* Network selector lists joined networks.
-* Autoconnects SSE on selection; initial history loaded via REST.
+## 3) Configure
 
-Rate Limiting: 1 message / 2s per (network,user) – HTTP 429 returned when exceeded.
+The first run creates `%ProgramData%/GOConnect/config/config.yaml` with defaults. Edit as needed:
 
-Query Filter: `GET /chat/messages?since=<RFC3339>` returns only newer messages.
+```yaml
+api:
+	auth: bearer
+	bearer_token: "changeme-local-owner"
+	rate_limit: { rps: 10, burst: 20 }
+	validation: true
+logging: { format: json, level: info }
+metrics: { enabled: false, addr: 127.0.0.1:9090 }
+stun_servers: ["stun.l.google.com:19302"]
+```
 
-Limitations / Future Work:
+Notes:
+- Mutating POST calls require CSRF via `X-CSRF-Token` header (cookie `goc_csrf`).
+- If you set `controller_url`, the agent will proxy `/api/controller/*` to that URL (and attach the bearer token from `secrets/controller_token.txt` when present).
 
-* No advanced authentication / multi-user identity separation yet (nickname used).
-* No paging beyond 200 message sliding window.
-* Consider WebSocket transport for richer events.
-* Potential future features: message edit/delete, reactions, moderation.
+## 4) Smoke Tests
 
-Happy hacking! Open issues for architectural questions before large rewrites.
+Diagnostics (STUN + MTU):
+
+```powershell
+bin/goconnect-service.exe diag
+```
+
+Expected JSON with `stun_ok` and `mtu_ok` true on a typical setup.
+
+API Diagnostic via PowerShell (CSRF + Bearer):
+
+```powershell
+Invoke-WebRequest http://127.0.0.1:2537/api/status -OutFile $null -SessionVariable S
+$csrf = $S.Cookies.GetCookies('http://127.0.0.1:2537')['goc_csrf'].Value
+Invoke-RestMethod -Method Post http://127.0.0.1:2537/api/diag/run -Headers @{ 'Authorization'='Bearer changeme-local-owner'; 'X-CSRF-Token'=$csrf }
+```
+
+Optional TUN compile smoke:
+
+```powershell
+go build -tags=wintun ./...
+```
+
+## 5) Updater (Dev)
+
+Enable in config to test the flow:
+
+```yaml
+updater:
+	enabled: true
+	repo: "orhaniscoding/GOConnect"
+```
+
+- Check:
+```powershell
+bin/goconnect-service.exe self-update --check
+```
+- Apply (staged):
+```powershell
+bin/goconnect-service.exe self-update
+```
+
+The new binary is downloaded as `.new`; if possible, an atomic swap with `.bak` is performed. If locked, a `.update-staged` marker is written for activation on restart.
+
+## 6) Security Notes (Dev)
+
+- Keep `api.bearer_token` private. The API is designed for local admin by default.
+- CSRF is enforced for POSTs via `X-CSRF-Token`.
+- Windows DPAPI is available for machine-bound secret encryption in `internal/security`.
+- Trusted peer certs support file paths or inline PEM blocks.
+
+## 7) Controller Store
+
+Controller defaults to SQLite. Override via env for fast iteration:
+
+```powershell
+$env:GOCONNECT_STORE_TYPE = 'memory'   # or 'sqlite' (default)
+$env:GOCONNECT_DATA_DIR = '.\data'
+bin/goconnectcontroller.exe
+```
+
+## 8) Tests & Lint
+
+Run tests:
+
+```powershell
+go test ./... -count=1
+```
+
+With coverage:
+
+```powershell
+go test -count=1 -covermode=atomic -coverpkg=./... -coverprofile=coverage.out ./...
+go tool cover -func=coverage.out
+```
+
+Lint and vet locally:
+
+```powershell
+go vet ./...
+golangci-lint run --timeout=5m
+```
+
+CI enforces:
+- vet + golangci-lint
+- tests with combined coverage; gate at ≥60%
+- Windows Wintun compile-only job
+- optional Linux race test
+
+## 9) VS Code Tips
+
+Tasks available in this repo:
+- Build Service, Build All, Test (short), Run Service (dev), Run Service (wintun)
+
+Debug the service via `cmd/goconnectservice/main.go` launch. Set breakpoints anywhere under `internal/*`.
+
+## 10) Troubleshooting
+
+- HTTP API not starting: ensure port 2537 is free, check `%ProgramData%/GOConnect/logs/agent.log` for JSON errors.
+- CSRF failures: perform a GET to `/api/status` to obtain the `goc_csrf` cookie before POSTs.
+- STUN failures: verify outbound UDP; try another server like `stun1.l.google.com:19302`.
+- Wintun issues: for compile-only checks use `-tags=wintun` without needing the driver; to actually use the TUN device, run as Administrator and ensure Wintun is installed.
+
+Happy hacking!

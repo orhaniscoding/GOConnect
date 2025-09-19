@@ -4,8 +4,10 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -14,7 +16,39 @@ import (
 	"controller/store"
 )
 
-var s = store.NewInMemoryStore()
+type ControllerConfig struct {
+	StoreType string // "sqlite" or "memory"
+	DataDir   string
+}
+
+func loadConfig() ControllerConfig {
+	// For now, just env/config file stub; default to sqlite
+	st := os.Getenv("GOCONNECT_STORE_TYPE")
+	if st == "" {
+		st = "sqlite"
+	}
+	dir := os.Getenv("GOCONNECT_DATA_DIR")
+	if dir == "" {
+		dir = "./data"
+	}
+	return ControllerConfig{
+		StoreType: st,
+		DataDir:   dir,
+	}
+}
+
+func openStore(cfg ControllerConfig) (any, error) {
+	switch cfg.StoreType {
+	case "memory":
+		return store.NewInMemoryStore(), nil
+	case "sqlite":
+		return store.NewSQLiteStore(cfg.DataDir)
+	default:
+		return nil, errors.New("unknown store type")
+	}
+}
+
+var s store.ControllerStore
 
 // --- Simple in-memory controller model with ownership ---
 type ctrlMember struct {
@@ -38,6 +72,12 @@ var (
 )
 
 func main() {
+	cfg := loadConfig()
+	st, err := openStore(cfg)
+	if err != nil {
+		log.Fatalf("store: %v", err)
+	}
+	s = st.(store.ControllerStore)
 	http.HandleFunc("/api/v1/networks/", dispatchNetworkRoutes)
 	http.HandleFunc("/api/controller/", dispatchControllerRoutes)
 	log.Println("Controller API listening on :8080")

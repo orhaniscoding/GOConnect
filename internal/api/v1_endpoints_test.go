@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"goconnect/internal/config"
@@ -16,6 +17,7 @@ import (
 func testAPI(t *testing.T) *API {
 	cfg := config.Default("en")
 	cfg.Networks = []config.Network{{ID: "n1", Name: "Net1", Joined: true}}
+	cfg.Api.BearerToken = "testtoken"
 	st := core.NewState(core.Settings{Port: cfg.Port, MTU: cfg.MTU})
 	logger := log.New(io.Discard, "test", log.LstdFlags)
 	api := New(st, cfg, logger, func() {})
@@ -132,6 +134,10 @@ func (c *testClient) doJSON(method, path string, body any, out any, expect int) 
 			req.AddCookie(ck)
 		}
 	}
+	// add bearer auth by default unless hitting /api/status
+	if !strings.HasPrefix(path, "/api/status") {
+		req.Header.Set("Authorization", "Bearer "+"testtoken")
+	}
 	rr := httptest.NewRecorder()
 	c.srv.Handler.ServeHTTP(rr, req)
 	if rr.Code != expect {
@@ -145,6 +151,7 @@ func (c *testClient) doJSON(method, path string, body any, out any, expect int) 
 func TestJoinSecretValidation(t *testing.T) {
 	// Start with empty config (no preexisting networks) to test setting secret on first join
 	cfg := config.Default("en")
+	cfg.Api.BearerToken = "testtoken"
 	st := core.NewState(core.Settings{Port: cfg.Port, MTU: cfg.MTU})
 	logger := log.New(io.Discard, "test", log.LstdFlags)
 	api := New(st, cfg, logger, func() {})
@@ -171,4 +178,62 @@ func TestJoinSecretValidation(t *testing.T) {
 	var joinOK2 map[string]any
 	body4 := map[string]any{"id": "secnet", "join_secret": "s3cr3t"}
 	client.doJSON(http.MethodPost, "/api/networks/join", body4, &joinOK2, 200)
+}
+
+func TestAuthAndRateLimitAndValidation(t *testing.T) {
+	api := testAPI(t)
+	// Make limits very generous for general parts of this test
+	api.cfg.Api.RateLimit.RPS = 1000
+	api.cfg.Api.RateLimit.Burst = 1000
+	srv := api.Serve(":0", "")
+	client := newTestClient(t, srv)
+
+	// 401 when no auth header
+	var out map[string]any
+	// Craft request without Authorization header by bypassing helper
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/networks", nil)
+	// need CSRF only for non-GET; this is GET so fine
+	srv.Handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	// 403 wrong token
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/networks", nil)
+	req.Header.Set("Authorization", "Bearer wrong")
+	srv.Handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", rr.Code)
+	}
+
+	// 400 invalid payload: send negative MTU (with valid auth)
+	body := map[string]any{"Version": 1, "mtu": -1}
+	var invalid map[string]any
+	client.doJSON(http.MethodPut, "/api/v1/networks/n1/settings", body, &invalid, 400)
+	if invalid["code"].(string) == "" {
+		t.Fatalf("expected error code in validation error")
+	}
+	if _, ok := invalid["details"].([]any); !ok {
+		t.Fatalf("expected details array in validation error, got: %T", invalid["details"])
+	}
+
+	// 429 rate limit: use a dedicated API instance with strict limits
+	api2 := testAPI(t)
+	api2.cfg.Api.RateLimit.RPS = 1
+	api2.cfg.Api.RateLimit.Burst = 1
+	srv2 := api2.Serve(":0", "")
+	client2 := newTestClient(t, srv2)
+	client2.doJSON(http.MethodGet, "/api/networks", nil, &out, 200)
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/networks", nil)
+	req.Header.Set("Authorization", "Bearer "+api2.cfg.Api.BearerToken)
+	srv2.Handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d", rr.Code)
+	}
+	if ra := rr.Header().Get("Retry-After"); ra == "" {
+		t.Fatalf("expected Retry-After header")
+	}
 }

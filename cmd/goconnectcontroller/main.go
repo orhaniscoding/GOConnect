@@ -4,6 +4,7 @@ import (
 	"context"
 	"goconnect/internal/config"
 	"goconnect/internal/controller"
+	golog "goconnect/internal/logging"
 	"log"
 	"net/http"
 	"os"
@@ -37,11 +38,11 @@ func (p *program) run() {
 	}
 	logDir := filepath.Join(config.ProgramDataBase(), "logs")
 	_ = os.MkdirAll(logDir, 0o755)
-	// Simple file log (append)
+	// Structured log
 	logPath := filepath.Join(logDir, "controller.log")
-	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	lg, _, err := golog.Setup(logPath, "json", "info")
 	if err == nil {
-		log.SetOutput(f)
+		log.SetOutput(lg.Writer())
 		_ = logger.Info("Logging to ", logPath)
 	} else {
 		_ = logger.Error("file log open failed:", err)

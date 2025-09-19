@@ -111,6 +111,15 @@ func (m *Manager) Stop() error {
 	return nil
 }
 
+// BoundAddr returns the local UDP address that the QUIC listener is bound to.
+// It returns nil if the manager has not started listening yet.
+func (m *Manager) BoundAddr() net.Addr {
+	if m.ln == nil {
+		return nil
+	}
+	return m.ln.Addr()
+}
+
 func (m *Manager) acceptLoop() {
 	for {
 		sess, err := m.ln.Accept(context.Background())

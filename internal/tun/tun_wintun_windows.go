@@ -1,48 +1,3 @@
-
-//go:build windows && wintun
-
-package tun
-// Read reads a packet from the TUN device.
-func (d *device) Read(b []byte) (int, error) {
-	if d.dev == nil {
-		return 0, fmt.Errorf("device not up")
-	}
-	return d.dev.Read(b, 0)
-}
-
-// Write writes a packet to the TUN device.
-func (d *device) Write(b []byte) (int, error) {
-	if d.dev == nil {
-		return 0, fmt.Errorf("device not up")
-	}
-	return d.dev.Write(b, 0)
-}
-
-import (
-	"bytes"
-	"context"
-	"fmt"
-	"net"
-	"os/exec"
-	"time"
-
-	wgTun "golang.zx2c4.com/wireguard/tun"
-)
-
-// Real Wintun-backed implementation (enabled with -tags=wintun).
-
-// SetAddress: Controller'dan gelen IP'yi arayüze uygula
-func (d *device) SetAddress(ip string) error {
-	if d.ifName == "" {
-		d.ifName = "GOConnect"
-	}
-	cmd := exec.Command("netsh", "interface", "ipv4", "set", "address",
-		fmt.Sprintf("name=%s", d.ifName), "static", ip, "255.255.255.255")
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("netsh set address: %w", err)
-	}
-	return nil
-}
 //go:build windows && wintun
 
 package tun
@@ -63,6 +18,8 @@ type device struct {
 	ifName string
 	mtu    int
 	dev    wgTun.Device
+	rbuf   [][]byte
+	rlens  []int
 }
 
 func New() Device { return &device{ifName: "GOConnect", mtu: 1280} }
@@ -76,6 +33,10 @@ func (d *device) Up() error {
 		return err
 	}
 	d.dev = dev
+	// prepare single-packet read buffers
+	d.rbuf = make([][]byte, 1)
+	d.rbuf[0] = make([]byte, 65536)
+	d.rlens = make([]int, 1)
 	if err := configureInterface(d.ifName); err != nil {
 		_ = d.dev.Close()
 		d.dev = nil
@@ -95,6 +56,58 @@ func (d *device) Down() error {
 }
 
 func (d *device) IsUp() bool { return d.dev != nil }
+
+func (d *device) Read(b []byte) (int, error) {
+	if d.dev == nil {
+		return 0, fmt.Errorf("device not up")
+	}
+	if len(d.rbuf) == 0 || len(d.rbuf[0]) == 0 {
+		d.rbuf = make([][]byte, 1)
+		d.rbuf[0] = make([]byte, 65536)
+		d.rlens = make([]int, 1)
+	}
+	n, err := d.dev.Read(d.rbuf, d.rlens, 0)
+	if err != nil {
+		return 0, err
+	}
+	if n <= 0 {
+		return 0, nil
+	}
+	size := d.rlens[0]
+	if size > len(b) {
+		size = len(b)
+	}
+	copy(b[:size], d.rbuf[0][:d.rlens[0]])
+	return size, nil
+}
+
+func (d *device) Write(b []byte) (int, error) {
+	if d.dev == nil {
+		return 0, fmt.Errorf("device not up")
+	}
+	pkts := [][]byte{b}
+	n, err := d.dev.Write(pkts, 0)
+	if err != nil {
+		return 0, err
+	}
+	if n > 0 {
+		return len(b), nil
+	}
+	return 0, nil
+}
+
+// SetAddress applies a static address to the interface.
+func (d *device) SetAddress(ip string) error {
+	if d.ifName == "" {
+		d.ifName = "GOConnect"
+	}
+	cmd := exec.Command("netsh", "interface", "ipv4", "set", "address",
+		fmt.Sprintf("name=%s", d.ifName), "static", ip, "255.255.255.255")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("netsh set address: %w", err)
+	}
+	return nil
+}
 
 func (d *device) LoopbackTest(ctx context.Context) error {
 	if d.dev == nil {
@@ -140,7 +153,7 @@ func (d *device) LoopbackTest(ctx context.Context) error {
 }
 
 func configureInterface(name string) error {
-	// Assign point-to-point address (controller will push routes later on).
+	// Assign a point-to-point address (controller will push routes later).
 	cmd := exec.Command("netsh", "interface", "ipv4", "set", "address",
 		fmt.Sprintf("name=%s", name), "static", "100.64.0.2", "255.255.255.255")
 	if err := cmd.Run(); err != nil {

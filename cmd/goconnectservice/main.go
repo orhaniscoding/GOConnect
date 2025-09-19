@@ -2,14 +2,17 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"goconnect/internal/api"
 	"goconnect/internal/config"
 	"goconnect/internal/core"
+	"goconnect/internal/diag"
 	gi18n "goconnect/internal/i18n"
 	golog "goconnect/internal/logging"
 	gtx "goconnect/internal/transport"
 	gtun "goconnect/internal/tun"
+	"goconnect/internal/updater"
 	"log"
 	"net"
 	"net/http"
@@ -60,7 +63,8 @@ func (p *program) run() {
 	_ = logger.Info("Log directory ensured.")
 	logPath := filepath.Join(logDir, "agent.log")
 	_ = logger.Info("Log file path: " + logPath)
-	fileLogger, closer, err := golog.SetupLogger(logPath)
+	// Initialize logging with safe defaults before config is available
+	fileLogger, closer, err := golog.Setup(logPath, "json", "info")
 	if err != nil {
 		_ = logger.Errorf("CRITICAL: Failed to setup file logger: %v", err)
 		return
@@ -71,7 +75,7 @@ func (p *program) run() {
 			_ = closer.Close()
 		}
 	}()
-	// Redirect standard `log` package to our file.
+	// Redirect standard `log` package to structured adapter (will keep working if we later reconfigure).
 	log.SetOutput(fileLogger.Writer())
 
 	log.Println("--- GOConnect Service Starting (File Log) ---")
@@ -98,6 +102,17 @@ func (p *program) run() {
 	}
 	log.Println("Config loaded successfully.")
 
+	// Reconfigure logging according to config (format/level)
+	if closer != nil {
+		_ = closer.Close()
+	}
+	fileLogger, closer, err = golog.Setup(logPath, cfg.Logging.Format, cfg.Logging.Level)
+	if err != nil {
+		_ = logger.Errorf("CRITICAL: Failed to reconfigure logger: %v", err)
+		return
+	}
+	log.SetOutput(fileLogger.Writer())
+
 	// Load resources from paths relative to the project root.
 	if err := gi18n.LoadFromFiles(filepath.Join(rootDir, "internal", "i18n")); err != nil {
 		log.Printf("i18n load from files failed: %v", err)
@@ -118,11 +133,13 @@ func (p *program) run() {
 		StunServers:      cfg.StunServers,
 		TrustedPeerCerts: cfg.TrustedPeerCerts,
 	})
-	st.SetTunDevice(gtun.New())
+	if cfg.EnableTun {
+		st.SetTunDevice(gtun.New())
+	}
 	st.Start()
 	log.Println("Core state initialized and started.")
 
-	a := api.New(st, cfg, fileLogger, func() {
+	a := api.New(st, cfg, log.New(fileLogger.Writer(), "", 0), func() {
 		if p.cancel != nil {
 			p.cancel()
 		}
@@ -227,13 +244,45 @@ func main() {
 	}
 
 	if len(os.Args) > 1 {
-		err = service.Control(s, os.Args[1])
-		if err != nil {
-			log.Printf("Failed to %s %s: %v", os.Args[1], svcCfg.Name, err)
+		switch os.Args[1] {
+		case "diag":
+			cfg, _ := config.Load()
+			res := diag.Run(cfg)
+			b, _ := json.MarshalIndent(res, "", "  ")
+			fmt.Println(string(b))
+			if !res.STUNOK || !res.MTUOK {
+				os.Exit(1)
+			}
+			return
+		case "self-update":
+			if len(os.Args) > 2 && os.Args[2] == "--check" {
+				res, err := updater.Check()
+				if err != nil {
+					fmt.Println("{\"error\":\"check_failed\",\"details\":\"" + err.Error() + "\"}")
+					os.Exit(1)
+				}
+				b, _ := json.MarshalIndent(res, "", "  ")
+				fmt.Println(string(b))
+				if res.Available {
+					os.Exit(10) // non-zero to indicate available
+				}
+				return
+			}
+			if err := updater.Apply(); err != nil {
+				fmt.Println("{\"error\":\"apply_failed\",\"details\":\"" + err.Error() + "\"}")
+				os.Exit(1)
+			}
+			fmt.Println("{\"result\":\"ok\"}")
+			return
+		default:
+			err = service.Control(s, os.Args[1])
+			if err != nil {
+				log.Printf("Failed to %s %s: %v", os.Args[1], svcCfg.Name, err)
+				return
+			}
+			log.Printf("%s %s.", svcCfg.Name, os.Args[1])
 			return
 		}
-		log.Printf("%s %s.", svcCfg.Name, os.Args[1])
-		return
 	}
 
 	err = s.Run()

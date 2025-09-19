@@ -2,6 +2,20 @@ package store
 
 import (
 	"sync"
+	"controller/models"
+)
+
+// --- ControllerStore interface ---
+type ControllerStore interface {
+	GetNetworkSettings(networkID string) (*models.NetworkSettings, bool)
+	SetNetworkSettings(networkID string, ns *models.NetworkSettings)
+	GetMembershipPreferences(networkID, nodeID string) (*models.MembershipPreferences, bool)
+	SetMembershipPreferences(networkID, nodeID string, mp *models.MembershipPreferences)
+}
+package store
+
+import (
+	"sync"
 
 	"controller/models"
 )

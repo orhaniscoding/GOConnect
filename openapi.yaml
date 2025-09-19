@@ -6,171 +6,20 @@ info:
     Local agent HTTP API for GOConnect. Includes core control endpoints and experimental v1 network scope endpoints.
 servers:
   - url: http://127.0.0.1:2537
-paths:
-  /api/status:
-    get:
-      summary: Service status snapshot
-      responses:
-        '200':
-          description: OK
-  /api/settings:
-    get:
-      summary: Get global agent settings
-      responses:
-        '200': { description: OK }
-    put:
-      summary: Update global agent settings
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { type: object }
-      responses:
-        '200': { description: Updated }
-  /api/service/start:
-    post:
-      summary: Start service
-      responses: { '200': { description: OK } }
-  /api/service/stop:
-    post:
-      summary: Stop service
-      responses: { '200': { description: OK } }
-  /api/networks:
-    get:
-      summary: List configured networks
-      responses: { '200': { description: OK } }
-  /api/networks/join:
-    post:
-      summary: Join a network
-      responses: { '200': { description: Joined } }
-  /api/networks/leave:
-    post:
-      summary: Leave a network
-      responses: { '200': { description: Left } }
-  /api/v1/networks/{networkId}/settings:
-    get:
-      summary: Get versioned network settings
-      parameters:
-        - in: path
-          name: networkId
-          required: true
-          schema: { type: string }
-      responses:
-        '200': { description: OK }
-        '404': { description: Not found }
-    put:
-      summary: Update network settings (optimistic concurrency)
-      parameters:
-        - in: path
-          name: networkId
-          required: true
-          schema: { type: string }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { type: object, properties: { Version: { type: integer } } }
-      responses:
-        '200': { description: Updated }
-        '409': { description: Version conflict }
-  /api/v1/networks/{networkId}/me/preferences:
-    get:
-      summary: Get member preferences
-      parameters:
-        - in: path
-          name: networkId
-          required: true
-          schema: { type: string }
-      responses:
-        '200': { description: OK }
-    put:
-      summary: Update member preferences (optimistic concurrency)
-      parameters:
-        - in: path
-          name: networkId
-          required: true
-          schema: { type: string }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { type: object, properties: { Version: { type: integer } } }
-      responses:
-        '200': { description: Updated }
-        '409': { description: Version conflict }
-  /api/v1/networks/{networkId}/effective:
-    get:
-      summary: Get effective policy for current member
-      parameters:
-        - in: path
-          name: networkId
-          required: true
-          schema: { type: string }
-        - in: query
-          name: node
-          schema: { type: string, default: me }
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EffectivePolicy'
-        '404': { description: Not found }
-  /api/metrics:
-    get:
-      summary: Basic service metrics
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Metrics'
-  /api/v1/networks/{networkId}/chat/messages:
-    get:
-      summary: List chat messages (optionally since timestamp)
-      parameters:
-        - in: path
-          name: networkId
-          required: true
-          schema: { type: string }
-        - in: query
-          name: since
-          schema: { type: string, format: date-time }
-      responses:
-        '200': { description: OK }
-    post:
-      summary: Post a chat message
-      parameters:
-        - in: path
-          name: networkId
-          required: true
-          schema: { type: string }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                text: { type: string }
-      responses:
-        '200': { description: Created }
-        '403': { description: Chat disabled }
-        '429': { description: Rate limited }
-  /api/v1/networks/{networkId}/chat/stream:
-    get:
-      summary: Chat stream (SSE)
-      parameters:
-        - in: path
-          name: networkId
-          required: true
-          schema: { type: string }
-      responses:
-        '200': { description: Stream opened }
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
   schemas:
+    ApiError:
+      type: object
+      properties:
+        code: { type: string }
+        message: { type: string }
+        details: {}
+    # existing schemas moved below
     NetworkSettings:
       type: object
       properties:
@@ -238,3 +87,210 @@ components:
         from: { type: string }
         text: { type: string }
         at: { type: string, format: date-time }
+paths:
+  /api/status:
+    get:
+      summary: Service status snapshot
+      responses:
+        '200':
+          description: OK
+  /api/settings:
+    get:
+      summary: Get global agent settings
+      security:
+        - bearerAuth: []
+      responses:
+        '200': { description: OK }
+        '401': { description: Unauthorized, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+        '403': { description: Forbidden, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+    put:
+      summary: Update global agent settings
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '200': { description: Updated }
+        '400': { description: Bad Request, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+        '401': { description: Unauthorized, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+        '403': { description: Forbidden, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+        '429': { description: Too Many Requests, headers: { Retry-After: { schema: { type: string } } }, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /api/service/start:
+    post:
+      summary: Start service
+      security:
+        - bearerAuth: []
+      responses: { '200': { description: OK } }
+  /api/service/stop:
+    post:
+      summary: Stop service
+      security:
+        - bearerAuth: []
+      responses: { '200': { description: OK } }
+  /api/networks:
+    get:
+      summary: List configured networks
+      security:
+        - bearerAuth: []
+      responses: { '200': { description: OK } }
+  /api/networks/join:
+    post:
+      summary: Join a network
+      security:
+        - bearerAuth: []
+      responses: { '200': { description: Joined } }
+  /api/networks/leave:
+    post:
+      summary: Leave a network
+      security:
+        - bearerAuth: []
+      responses: { '200': { description: Left } }
+  /api/v1/networks/{networkId}/settings:
+    get:
+      summary: Get versioned network settings
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: networkId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+        '404': { description: Not found }
+        '401': { description: Unauthorized, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+        '403': { description: Forbidden, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+    put:
+      summary: Update network settings (optimistic concurrency)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: networkId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, properties: { Version: { type: integer } } }
+      responses:
+        '200': { description: Updated }
+        '409': { description: Version conflict }
+        '400': { description: Bad Request, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+        '401': { description: Unauthorized, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+        '403': { description: Forbidden, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+        '429': { description: Too Many Requests, headers: { Retry-After: { schema: { type: string } } }, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /api/v1/networks/{networkId}/me/preferences:
+    get:
+      summary: Get member preferences
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: networkId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+    put:
+      summary: Update member preferences (optimistic concurrency)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: networkId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, properties: { Version: { type: integer } } }
+      responses:
+        '200': { description: Updated }
+        '409': { description: Version conflict }
+  /api/v1/networks/{networkId}/effective:
+    get:
+      summary: Get effective policy for current member
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: networkId
+          required: true
+          schema: { type: string }
+        - in: query
+          name: node
+          schema: { type: string, default: me }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EffectivePolicy'
+        '404': { description: Not found }
+  /api/metrics:
+    get:
+      summary: Basic service metrics
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Metrics'
+  /api/v1/networks/{networkId}/chat/messages:
+    get:
+      summary: List chat messages (optionally since timestamp)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: networkId
+          required: true
+          schema: { type: string }
+        - in: query
+          name: since
+          schema: { type: string, format: date-time }
+      responses:
+        '200': { description: OK }
+    post:
+      summary: Post a chat message
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: networkId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text: { type: string }
+      responses:
+        '200': { description: Created }
+        '403': { description: Chat disabled }
+        '429': { description: Rate limited }
+  /api/v1/networks/{networkId}/chat/stream:
+    get:
+      summary: Chat stream (SSE)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: networkId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Stream opened }

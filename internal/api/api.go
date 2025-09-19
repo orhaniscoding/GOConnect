@@ -7,10 +7,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"goconnect/internal/api/mw"
 	"goconnect/internal/config"
 	"goconnect/internal/core"
+	"goconnect/internal/diag"
 	gi18n "goconnect/internal/i18n"
 	"goconnect/internal/ipam"
+	"goconnect/internal/metrics"
+
 	webfs "goconnect/webui"
 	"io"
 	"io/ioutil"
@@ -22,6 +26,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"goconnect/internal/updater"
+
+	v10 "github.com/go-playground/validator/v10"
 )
 
 type API struct {
@@ -33,6 +41,7 @@ type API struct {
 	csrfToken string
 	shutdown  func()
 	startTime time.Time
+	validate  *v10.Validate
 
 	controllerToken string
 
@@ -60,15 +69,23 @@ type ChatMessage struct {
 
 // errorResponse standard form
 type errorResponse struct {
-	Error   string `json:"error"`
-	Message string `json:"message,omitempty"`
+	Code    string      `json:"code"`
+	Message string      `json:"message,omitempty"`
+	Details interface{} `json:"details,omitempty"`
 }
 
 func errPayload(code int, key, msg string) (int, any) {
 	if msg == "" {
 		msg = key
 	}
-	return code, errorResponse{Error: key, Message: msg}
+	return code, errorResponse{Code: key, Message: msg}
+}
+
+func errPayloadWithDetails(code int, key, msg string, details any) (int, any) {
+	if msg == "" {
+		msg = key
+	}
+	return code, errorResponse{Code: key, Message: msg, Details: details}
 }
 
 // context keys and helpers
@@ -89,11 +106,11 @@ func NetworkIDFromContext(ctx context.Context) (string, bool) {
 
 // NetworkSettingsState holds versioned settings for a network.
 type NetworkSettingsState struct {
-	Version            int      `json:"version"`
-	MTU                int      `json:"mtu"`
-	Port               int      `json:"port"`
+	Version            int      `json:"version" validate:"gte=0"`
+	MTU                int      `json:"mtu" validate:"omitempty,min=576,max=9000"`
+	Port               int      `json:"port" validate:"omitempty,min=1,max=65535"`
 	AllowAll           bool     `json:"allow_all"`
-	Mode               string   `json:"mode"`
+	Mode               string   `json:"mode" validate:"omitempty,oneof=default strict gaming custom"`
 	AllowFileShare     bool     `json:"allow_file_share"`
 	AllowServiceDisc   bool     `json:"allow_service_discovery"`
 	AllowPeerPing      bool     `json:"allow_peer_ping"`
@@ -101,25 +118,25 @@ type NetworkSettingsState struct {
 	AllowBroadcast     bool     `json:"allow_broadcast"`
 	AllowIPv6          bool     `json:"allow_ipv6"`
 	AllowChat          bool     `json:"allow_chat"`
-	MTUOverride        int      `json:"mtu_override"`
-	DefaultDNS         []string `json:"default_dns"`
-	GameProfile        string   `json:"game_profile"`
+	MTUOverride        int      `json:"mtu_override" validate:"gte=0"`
+	DefaultDNS         []string `json:"default_dns" validate:"dive,hostname|ip"`
+	GameProfile        string   `json:"game_profile" validate:"omitempty,oneof=none low latency balanced"`
 	RequireEncryption  bool     `json:"require_encryption"`
 	RestrictNewMembers bool     `json:"restrict_new_members"`
-	IdleDisconnectMin  int      `json:"idle_disconnect_minutes"`
+	IdleDisconnectMin  int      `json:"idle_disconnect_minutes" validate:"gte=0,lte=10080"`
 }
 
 // MemberPreferencesState holds versioned member preferences.
 type MemberPreferencesState struct {
-	Version           int    `json:"version"`
+	Version           int    `json:"version" validate:"gte=0"`
 	AllowInternet     bool   `json:"allow_internet"`
-	Nickname          string `json:"nickname"`
+	Nickname          string `json:"nickname" validate:"omitempty,min=1,max=64"`
 	LocalShareEnabled bool   `json:"local_share_enabled"`
 	AdvertiseServices bool   `json:"advertise_services"`
 	AllowIncomingP2P  bool   `json:"allow_incoming_p2p"`
 	ChatEnabled       bool   `json:"chat_enabled"`
-	Alias             string `json:"alias"`
-	Notes             string `json:"notes"`
+	Alias             string `json:"alias" validate:"omitempty,max=64"`
+	Notes             string `json:"notes" validate:"omitempty,max=256"`
 }
 
 func New(state *core.State, cfg *config.Config, logger *log.Logger, shutdown func()) *API {
@@ -138,6 +155,7 @@ func New(state *core.State, cfg *config.Config, logger *log.Logger, shutdown fun
 		chatLast:          map[string]time.Time{},
 		startTime:         time.Now(),
 	}
+	a.validate = newValidator()
 	// Load controller token if present
 	token := ""
 	if data, err := ioutil.ReadFile("secrets/controller_token.txt"); err == nil {
@@ -244,21 +262,30 @@ func (a *API) Serve(addr string, webDir string) *http.Server {
 	}
 	mux.Handle("/", http.StripPrefix("/", handler))
 
+	// Build middleware chain: auth -> rate limit -> handler. Exempt GET /api/status from auth/rate for convenience.
+	chain := mw.Chain(
+		mw.BearerAuth(func() string { return strings.TrimSpace(a.cfg.Api.BearerToken) }, a.logger),
+		mw.RateLimit(a.cfg.Api.RateLimit.RPS, a.cfg.Api.RateLimit.Burst, a.logger),
+	)
+
 	mux.HandleFunc("/api/status", a.wrap(a.handleStatus))
-	mux.HandleFunc("/api/service/start", a.wrapPOST(a.handleServiceStart))
-	mux.HandleFunc("/api/service/stop", a.wrapPOST(a.handleServiceStop))
-	mux.HandleFunc("/api/service/restart", a.wrapPOST(a.handleServiceRestart))
-	mux.HandleFunc("/api/networks", a.wrap(a.handleNetworks))
-	mux.HandleFunc("/api/networks/join", a.wrapPOST(a.handleNetworksJoin))
-	mux.HandleFunc("/api/networks/leave", a.wrapPOST(a.handleNetworksLeave))
-	mux.HandleFunc("/api/peers", a.wrap(a.handlePeers))
-	mux.HandleFunc("/api/logs/stream", a.handleLogsStream)
-	mux.HandleFunc("/api/settings", a.wrap(a.handleSettings))
-	mux.HandleFunc("/api/metrics", a.wrap(a.handleMetrics))
+	mux.Handle("/api/service/start", chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { a.wrapPOST(a.handleServiceStart)(w, r) })))
+	mux.Handle("/api/service/stop", chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { a.wrapPOST(a.handleServiceStop)(w, r) })))
+	mux.Handle("/api/service/restart", chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { a.wrapPOST(a.handleServiceRestart)(w, r) })))
+	mux.Handle("/api/networks", chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { a.wrap(a.handleNetworks)(w, r) })))
+	mux.Handle("/api/networks/join", chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { a.wrapPOST(a.handleNetworksJoin)(w, r) })))
+	mux.Handle("/api/networks/leave", chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { a.wrapPOST(a.handleNetworksLeave)(w, r) })))
+	mux.Handle("/api/peers", chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { a.wrap(a.handlePeers)(w, r) })))
+	mux.HandleFunc("/api/logs/stream", a.handleLogsStream) // SSE left unauthenticated for now
+	mux.Handle("/api/settings", chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { a.wrap(a.handleSettings)(w, r) })))
+	// Optional metrics: if enabled in config, expose a Prometheus-style endpoint at /metrics (no auth middleware)
+	if a.cfg != nil && a.cfg.Metrics.Enabled {
+		mux.Handle("/metrics", metrics.Handler())
+	}
 	// Controller proxy: forward /api/controller/* to configured ControllerURL
-	mux.HandleFunc("/api/controller/", a.handleControllerProxy)
+	mux.Handle("/api/controller/", chain(http.HandlerFunc(a.handleControllerProxy)))
 	// --- v1 endpoints for webui integration ---
-	mux.HandleFunc("/api/v1/networks/", func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/api/v1/networks/", chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Route: /api/v1/networks/{networkId}/settings, /me/preferences, /effective
 		path := strings.TrimPrefix(r.URL.Path, "/api/v1/networks/")
 		parts := strings.Split(path, "/")
@@ -293,17 +320,33 @@ func (a *API) Serve(addr string, webDir string) *http.Server {
 			}
 		}
 		http.NotFound(w, r)
-	})
+	})))
 	// --- end v1 endpoints ---
-	mux.HandleFunc("/api/diag/run", a.wrapPOST(a.handleDiagRun))
-	mux.HandleFunc("/api/update/check", a.wrapPOST(a.handleUpdateCheck))
-	mux.HandleFunc("/api/update/apply", a.wrapPOST(a.handleUpdateApply))
-	mux.HandleFunc("/api/exit", a.wrapPOST(a.handleExit))
+	mux.Handle("/api/diag/run", chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { a.wrapPOST(a.handleDiagRun)(w, r) })))
+	mux.Handle("/api/update/check", chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { a.wrapPOST(a.handleUpdateCheck)(w, r) })))
+	mux.Handle("/api/update/apply", chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { a.wrapPOST(a.handleUpdateApply)(w, r) })))
+	mux.Handle("/api/exit", chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { a.wrapPOST(a.handleExit)(w, r) })))
 
 	srv := &http.Server{Addr: addr, Handler: a.csrfMiddleware(mux)}
 
 	go a.fakeLogPump()
 	return srv
+}
+
+// --- Validation helpers ---
+func newValidator() *v10.Validate {
+	v := v10.New()
+	return v
+}
+
+func (a *API) validatePayload(v any) error {
+	if a.cfg != nil && !a.cfg.Api.Validation {
+		return nil
+	}
+	if a.validate == nil {
+		a.validate = newValidator()
+	}
+	return a.validate.Struct(v)
 }
 
 func (a *API) SetPeersFn(f func() []map[string]any) { a.peersFn = f }
@@ -352,6 +395,23 @@ func (a *API) wrap(h func(http.ResponseWriter, *http.Request) (int, any)) http.H
 	return func(w http.ResponseWriter, r *http.Request) {
 		code, payload := h(w, r)
 		w.Header().Set("Content-Type", "application/json")
+		// Normalize error payloads to unified shape when status >= 400
+		if code >= 400 && payload != nil {
+			switch v := payload.(type) {
+			case map[string]string:
+				if e, ok := v["error"]; ok {
+					payload = errorResponse{Code: e, Message: v["message"]}
+				}
+			case map[string]any:
+				if e, ok := v["error"]; ok {
+					msg := ""
+					if m, ok := v["message"].(string); ok {
+						msg = m
+					}
+					payload = errorResponse{Code: fmt.Sprint(e), Message: msg}
+				}
+			}
+		}
 		w.WriteHeader(code)
 		if payload != nil {
 			_ = json.NewEncoder(w).Encode(payload)
@@ -611,33 +671,33 @@ func (a *API) handleSettings(w http.ResponseWriter, r *http.Request) (int, any) 
 }
 
 func (a *API) handleDiagRun(w http.ResponseWriter, r *http.Request) (int, any) {
-	// Gerçek teşhis verileriyle doldurulmuş örnek bir yanıt
+	dr := diag.Run(a.cfg)
 	svcState, _, _, networks, _, settings := a.state.Snapshot()
-	joined := 0
-	for _, n := range networks {
-		if n.Joined {
-			joined++
-		}
-	}
+	// Back-compat top-level fields used by Web UI
 	result := map[string]any{
 		"tun_ok":          a.state.TunError() == "",
 		"tun_error":       a.state.TunError(),
-		"public_endpoint": a.state.PublicEndpoint(),
+		"public_endpoint": dr.PublicEP,
 		"networks":        networks,
-		"stun":            "ok", // Geliştirilebilir: Gerçek STUN testi
 		"mtu":             settings.MTU,
-		"joined":          joined,
-		"total":           len(networks),
 		"service_state":   svcState,
+		"diag":            dr, // detailed object for future UI
 	}
 	return 200, result
 }
 
 func (a *API) handleUpdateCheck(w http.ResponseWriter, r *http.Request) (int, any) {
-	return 200, map[string]any{"available": false, "version": "v1.0.0"}
+	res, err := updater.Check()
+	if err != nil {
+		return 500, map[string]any{"error": "update_check_failed", "details": err.Error()}
+	}
+	return 200, res
 }
 
 func (a *API) handleUpdateApply(w http.ResponseWriter, r *http.Request) (int, any) {
+	if err := updater.Apply(); err != nil {
+		return 500, map[string]any{"error": "update_apply_failed", "details": err.Error()}
+	}
 	return 200, map[string]string{"result": "ok"}
 }
 

@@ -96,6 +96,70 @@
 			"type": "shell",
 			"command": "go build ./...",
 			"group": "build"
+		},
+		{
+			"label": "Test (short)",
+			"type": "shell",
+			"command": "go test ./... -run Test -count=1",
+			"group": "test"
+		},
+		{
+			"label": "Test (short)",
+			"type": "shell",
+			"command": "go test ./... -run Test -count=1",
+			"group": "test"
+		},
+		{
+			"label": "Test (short)",
+			"type": "shell",
+			"command": "go test ./... -run Test -count=1",
+			"group": "test"
+		},
+		{
+			"label": "Test (short)",
+			"type": "shell",
+			"command": "go test ./... -run Test -count=1",
+			"group": "test"
+		},
+		{
+			"label": "Build All",
+			"type": "shell",
+			"command": "go build ./...",
+			"group": "build"
+		},
+		{
+			"label": "Build All",
+			"type": "shell",
+			"command": "go build ./...",
+			"group": "build"
+		},
+		{
+			"label": "Build All",
+			"type": "shell",
+			"command": "go build ./...",
+			"group": "build"
+		},
+		{
+			"label": "Build wintun (local)",
+			"type": "shell",
+			"command": "go build -tags=wintun ./...",
+			"group": "build"
+		},
+		{
+			"label": "Build wintun (local)",
+			"type": "shell",
+			"command": "go build -tags=wintun ./...",
+			"group": "build"
+		},
+		{
+			"label": "Test with race",
+			"type": "shell",
+			"command": "go test ./... -race -count=1"
+		},
+		{
+			"label": "Build tunsmoke",
+			"type": "shell",
+			"command": "go build -o bin/tunsmoke.exe ./cmd/tunsmoke"
 		}
 	]
 }
