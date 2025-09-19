@@ -510,3 +510,16 @@ You can install both binaries and their scripts on the same machine and follow t
 
 ### License
 Licensed under the GPL 3.0 License. See [LICENSE](LICENSE) for details.
+
+## Releases / Sürümler
+
+Auto (main push): Conventional commits → auto semver tag (vX.Y.Z) → release with ZIPs & checksums.  
+Manual: Push a tag (`git tag v0.1.2 && git push origin v0.1.2`) → release.
+
+Artifacts:
+- `GOConnectAgentPackage-<ver>.zip` (+ `.sha256`)
+- `GOConnectControllerPackage-<ver>.zip` (+ `.sha256`)
+- `goconnect-service.exe`, `goconnectcontroller.exe`
+
+EN: Version is embedded into binaries at build time.  
+TR: Sürüm bilgisi derleme anında ikililere gömülür.

@@ -13,6 +13,7 @@ import (
 	gtx "goconnect/internal/transport"
 	gtun "goconnect/internal/tun"
 	"goconnect/internal/updater"
+	"goconnect/internal/version"
 	"log"
 	"net"
 	"net/http"
@@ -42,6 +43,7 @@ func (p *program) Start(s service.Service) error {
 
 func (p *program) run() {
 	_ = logger.Info("run() called")
+	_ = logger.Info("GOConnect Service version: " + version.Version)
 	// When running as a service, the working directory is System32, so we must
 	// determine paths based on the executable's location.
 	exePath, err := os.Executable()

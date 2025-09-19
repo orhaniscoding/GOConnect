@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"controller/models"
-	"controller/store"
+	"goconnect/controller/models"
+	"goconnect/controller/store"
 )
 
 type ControllerConfig struct {

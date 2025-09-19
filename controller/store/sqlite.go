@@ -1,63 +1,17 @@
-import (
-	"controller/models"
-// --- ControllerStore interface implementation for SQLite ---
-func (s *SQLiteStore) GetNetworkSettings(networkID string) (*models.NetworkSettings, bool) {
-	s.lock.RLock()
-	defer s.lock.RUnlock()
-	row := s.db.QueryRow(`SELECT data FROM settings WHERE id = ?`, networkID)
-	var data string
-	if err := row.Scan(&data); err != nil {
-		return nil, false
-	}
-	var ns models.NetworkSettings
-	if err := json.Unmarshal([]byte(data), &ns); err != nil {
-		return nil, false
-	}
-	return &ns, true
-}
-
-func (s *SQLiteStore) SetNetworkSettings(networkID string, ns *models.NetworkSettings) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-	b, _ := json.Marshal(ns)
-	_, _ = s.db.Exec(`INSERT OR REPLACE INTO settings (id, data, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)`, networkID, string(b))
-}
-
-func (s *SQLiteStore) GetMembershipPreferences(networkID, nodeID string) (*models.MembershipPreferences, bool) {
-	s.lock.RLock()
-	defer s.lock.RUnlock()
-	key := networkID + ":" + nodeID
-	row := s.db.QueryRow(`SELECT data FROM settings WHERE id = ?`, key)
-	var data string
-	if err := row.Scan(&data); err != nil {
-		return nil, false
-	}
-	var mp models.MembershipPreferences
-	if err := json.Unmarshal([]byte(data), &mp); err != nil {
-		return nil, false
-	}
-	return &mp, true
-}
-
-func (s *SQLiteStore) SetMembershipPreferences(networkID, nodeID string, mp *models.MembershipPreferences) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-	key := networkID + ":" + nodeID
-	b, _ := json.Marshal(mp)
-	_, _ = s.db.Exec(`INSERT OR REPLACE INTO settings (id, data, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)`, key, string(b))
-}
 package store
 
 import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
+
+	"goconnect/controller/models"
 
 	_ "modernc.org/sqlite"
 )
@@ -228,4 +182,51 @@ func (s *SQLiteStore) Backup(backupPath string) error {
 	defer out.Close()
 	_, err = io.Copy(out, in)
 	return err
+}
+
+// --- ControllerStore interface implementation for SQLite ---
+func (s *SQLiteStore) GetNetworkSettings(networkID string) (*models.NetworkSettings, bool) {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+	row := s.db.QueryRow(`SELECT data FROM settings WHERE id = ?`, networkID)
+	var data string
+	if err := row.Scan(&data); err != nil {
+		return nil, false
+	}
+	var ns models.NetworkSettings
+	if err := json.Unmarshal([]byte(data), &ns); err != nil {
+		return nil, false
+	}
+	return &ns, true
+}
+
+func (s *SQLiteStore) SetNetworkSettings(networkID string, ns *models.NetworkSettings) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	b, _ := json.Marshal(ns)
+	_, _ = s.db.Exec(`INSERT OR REPLACE INTO settings (id, data, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)`, networkID, string(b))
+}
+
+func (s *SQLiteStore) GetMembershipPreferences(networkID, nodeID string) (*models.MembershipPreferences, bool) {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+	key := networkID + ":" + nodeID
+	row := s.db.QueryRow(`SELECT data FROM settings WHERE id = ?`, key)
+	var data string
+	if err := row.Scan(&data); err != nil {
+		return nil, false
+	}
+	var mp models.MembershipPreferences
+	if err := json.Unmarshal([]byte(data), &mp); err != nil {
+		return nil, false
+	}
+	return &mp, true
+}
+
+func (s *SQLiteStore) SetMembershipPreferences(networkID, nodeID string, mp *models.MembershipPreferences) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	key := networkID + ":" + nodeID
+	b, _ := json.Marshal(mp)
+	_, _ = s.db.Exec(`INSERT OR REPLACE INTO settings (id, data, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)`, key, string(b))
 }

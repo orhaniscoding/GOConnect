@@ -1,0 +1,118 @@
+name: release-auto
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  bump-tag-and-release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Conventional commits -> new tag (inline PowerShell)
+      - name: Bump version and push tag
+        id: tagger
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git fetch --tags --force
+          $lastTag = (git tag --list "v*.*.*" | Sort-Object -Descending | Select-Object -First 1)
+          if (-not $lastTag) { $lastTag = "v0.0.0" }
+          Write-Host "Last tag: $lastTag"
+          $range = "${lastTag}..HEAD"
+          if ($lastTag -eq "v0.0.0") { $range = "" }
+
+          # Determine bump level based on conventional commits
+          $log = if ($range) { git log --format=%s $range } else { git log --format=%s }
+          $bump = "patch"
+          foreach ($line in $log) {
+            if ($line -match "BREAKING CHANGE" -or $line -match "^\w+!:") { $bump = "major"; break }
+            if ($line -match "^feat(\(|:)") { $bump = "minor" }
+            elseif ($line -match "^(fix|perf|refactor)(\(|:)") { if ($bump -ne "minor") { $bump = "patch" } }
+          }
+          Write-Host "Bump type: $bump"
+
+          # Parse last version
+          if ($lastTag -match "v(\d+)\.(\d+)\.(\d+)") {
+            $maj=[int]$Matches[1]; $min=[int]$Matches[2]; $pat=[int]$Matches[3]
+          } else { $maj=0; $min=0; $pat=0 }
+          switch ($bump) {
+            "major" { $maj++; $min=0; $pat=0 }
+            "minor" { $min++; $pat=0 }
+            default  { $pat++ }
+          }
+          $newTag = "v$maj.$min.$pat"
+          Write-Host "New tag: $newTag"
+
+          # Configure git and push tag
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag $newTag
+          git push origin $newTag
+
+          # Export output
+          "new_tag=$newTag" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Show new version
+        shell: pwsh
+        run: |
+          Write-Host ("New tag: ${{ steps.tagger.outputs.new_tag }}")
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build binaries (embed version)
+        shell: pwsh
+        run: |
+          $ver="${{ steps.tagger.outputs.new_tag }}"
+          if ($ver.StartsWith("v")) { $ver = $ver.Substring(1) }
+          go build -ldflags "-X goconnect/internal/version.Version=$ver" -o bin/goconnectcontroller.exe ./cmd/goconnectcontroller
+          go build -ldflags "-X goconnect/internal/version.Version=$ver" -o bin/goconnect-service.exe ./cmd/goconnectservice
+
+      - name: Prepare release artifacts (ZIP + SHA256)
+        shell: pwsh
+        run: |
+          $ver="${{ steps.tagger.outputs.new_tag }}"
+          if ($ver.StartsWith("v")) { $ver = $ver.Substring(1) }
+          powershell -NoProfile -ExecutionPolicy Bypass -File build\scripts\prepare-release.ps1 -Version $ver
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tagger.outputs.new_tag }}
+          name: GOConnect ${{ steps.tagger.outputs.new_tag }} — Windows Agent & Controller | Windows Aracı ve Denetleyici
+          body: |
+            # GOConnect ${{ steps.tagger.outputs.new_tag }} — Windows Agent & Controller
+
+            EN (English)
+            - Prebuilt Windows binaries (Agent/Controller)
+            - ZIP packages with install/uninstall scripts
+            - Diagnostics (STUN/MTU) & self-updater
+            - Structured JSON logging & optional /metrics
+            - SQLite store (default), API auth + rate limit + validation
+            - CI: lint, coverage gate, wintun compile-only
+
+            TR (Türkçe)
+            - Hazır Windows ikilileri (Agent/Controller)
+            - Kurulum/kaldırma scriptleriyle ZIP paketleri
+            - Tanılama (STUN/MTU) ve kendini güncelleme (updater)
+            - JSON biçimli loglama ve isteğe bağlı /metrics
+            - Varsayılan SQLite depolama, API yetkilendirme + kota + doğrulama
+            - CI: lint, kapsam eşiği, yalnız derleme (wintun)
+          draft: false
+          prerelease: true
+          files: |
+            GOConnectAgentPackage-*.zip
+            GOConnectAgentPackage-*.zip.sha256
+            GOConnectControllerPackage-*.zip
+            GOConnectControllerPackage-*.zip.sha256
+            bin/goconnect-service.exe
+            bin/goconnectcontroller.exe

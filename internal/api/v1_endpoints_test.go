@@ -76,7 +76,7 @@ func TestSettingsPreservesTrustedPeerCerts(t *testing.T) {
 		"udp_port":           45820,
 		"peers":              []string{},
 		"stun_servers":       []string{"stun.l.google.com:19302"},
-		"trusted_peer_certs": []string{"-----BEGIN CERTIFICATE-----\nMIIB...test...\n-----END CERTIFICATE-----", "trusted.pem"},
+		"trusted_peer_certs": []string{"-----BEGIN CERTIFICATE-----\nMIIBPASTE_PEM_HEREtest\n-----END CERTIFICATE-----", "trusted.pem"},
 	}
 	var putResp map[string]any
 	client.doJSON(http.MethodPut, "/api/settings", input, &putResp, 200)
