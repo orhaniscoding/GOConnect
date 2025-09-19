@@ -5,6 +5,7 @@ import (
 	"goconnect/internal/config"
 	"goconnect/internal/controller"
 	golog "goconnect/internal/logging"
+	"goconnect/internal/version"
 	"log"
 	"net/http"
 	"os"
@@ -32,6 +33,7 @@ func (p *program) Start(s service.Service) error {
 }
 
 func (p *program) run() {
+	_ = logger.Info("GOConnect version=" + version.Version + " starting...")
 	// Ensure ProgramData dirs (for symmetry with agent logs)
 	if err := config.EnsureDirs(); err != nil {
 		_ = logger.Error("ensure dirs failed:", err)

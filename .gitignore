@@ -1,0 +1,6 @@
+# local release outputs
+/GOConnectAgentPackage*
+/GOConnectControllerPackage*
+/bin/*.exe
+/*.zip
+/*.zip.sha256
