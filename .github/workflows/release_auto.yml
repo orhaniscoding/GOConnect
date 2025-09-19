@@ -15,10 +15,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-
       # Simple semver bump: feat -> MINOR, fix/chore -> PATCH, feat! or BREAKING CHANGE -> MAJOR
       - name: Compute next version (Conventional Commits)
         id: semver
@@ -51,49 +47,3 @@ jobs:
           $tag = "${{ steps.semver.outputs.tag }}"
           git tag -a $tag -m "Release $tag"
           git push origin $tag
-
-      - name: Build binaries (embed version)
-        shell: pwsh
-        run: |
-          $ver="${{ steps.semver.outputs.tag }}"
-          if ($ver.StartsWith("v")) { $ver = $ver.Substring(1) }
-          go build -ldflags "-X goconnect/internal/version.Version=$ver" -o bin/goconnectcontroller.exe ./cmd/goconnectcontroller
-          go build -ldflags "-X goconnect/internal/version.Version=$ver" -o bin/goconnect-service.exe ./cmd/goconnectservice
-
-      - name: Prepare release artifacts (ZIP + SHA256)
-        shell: pwsh
-        run: |
-          $ver="${{ steps.semver.outputs.tag }}"
-          if ($ver.StartsWith("v")) { $ver = $ver.Substring(1) }
-          powershell -NoProfile -ExecutionPolicy Bypass -File build\scripts\prepare-release.ps1 -Version $ver
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.semver.outputs.tag }}
-          name: GOConnect ${{ steps.semver.outputs.tag }} — Windows Agent & Controller | Windows Aracı ve Denetleyici
-          body: |
-            # GOConnect ${{ steps.semver.outputs.tag }} — Windows Agent & Controller | Windows Aracı ve Denetleyici
-
-            EN (English)
-            - Prebuilt Windows binaries (Agent/Controller)
-            - ZIP packages with install/uninstall scripts
-            - Diagnostics (STUN/MTU) & self-updater
-            - Structured JSON logging & optional /metrics
-            - SQLite store (default), API auth + rate limit + validation
-
-            TR (Türkçe)
-            - Hazır Windows ikilileri (Agent/Controller)
-            - Kurulum/kaldırma scriptleriyle ZIP paketleri
-            - Tanılama (STUN/MTU) ve kendini güncelleme (updater)
-            - JSON biçimli loglama ve isteğe bağlı /metrics
-            - Varsayılan SQLite depolama, API yetkilendirme + kota + doğrulama
-          draft: false
-          prerelease: true
-          files: |
-            GOConnectAgentPackage-*.zip
-            GOConnectAgentPackage-*.zip.sha256
-            GOConnectControllerPackage-*.zip
-            GOConnectControllerPackage-*.zip.sha256
-            bin/goconnect-service.exe
-            bin/goconnectcontroller.exe
