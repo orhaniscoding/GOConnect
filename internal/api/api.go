@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -11,6 +12,7 @@ import (
 	gi18n "goconnect/internal/i18n"
 	"goconnect/internal/ipam"
 	webfs "goconnect/webui"
+	"io"
 	"io/ioutil"
 	"log"
 	"net"
@@ -253,6 +255,8 @@ func (a *API) Serve(addr string, webDir string) *http.Server {
 	mux.HandleFunc("/api/logs/stream", a.handleLogsStream)
 	mux.HandleFunc("/api/settings", a.wrap(a.handleSettings))
 	mux.HandleFunc("/api/metrics", a.wrap(a.handleMetrics))
+	// Controller proxy: forward /api/controller/* to configured ControllerURL
+	mux.HandleFunc("/api/controller/", a.handleControllerProxy)
 	// --- v1 endpoints for webui integration ---
 	mux.HandleFunc("/api/v1/networks/", func(w http.ResponseWriter, r *http.Request) {
 		// Route: /api/v1/networks/{networkId}/settings, /me/preferences, /effective
@@ -739,6 +743,61 @@ func (a *API) log(event string) {
 	a.sseMu.Unlock()
 }
 
+// handleControllerProxy forwards requests under /api/controller/ to the configured controller URL.
+func (a *API) handleControllerProxy(w http.ResponseWriter, r *http.Request) {
+	base := strings.TrimSpace(a.cfg.ControllerURL)
+	if base == "" {
+		http.Error(w, "controller not configured", http.StatusBadRequest)
+		return
+	}
+	// Build target URL
+	suffix := strings.TrimPrefix(r.URL.Path, "/api/controller")
+	if !strings.HasPrefix(suffix, "/") {
+		suffix = "/" + suffix
+	}
+	target := strings.TrimRight(base, "/") + suffix
+	if r.URL.RawQuery != "" {
+		target += "?" + r.URL.RawQuery
+	}
+	// Prepare new request
+	var body io.Reader
+	if r.Body != nil {
+		// Read and buffer to allow reuse errors
+		b, _ := io.ReadAll(r.Body)
+		body = bytes.NewReader(b)
+	}
+	req, err := http.NewRequest(r.Method, target, body)
+	if err != nil {
+		http.Error(w, "proxy request failed", http.StatusBadGateway)
+		return
+	}
+	// Copy minimal headers
+	if ct := r.Header.Get("Content-Type"); ct != "" {
+		req.Header.Set("Content-Type", ct)
+	}
+	if a.controllerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+a.controllerToken)
+	}
+	if owner := r.Header.Get("X-Owner-Token"); owner != "" {
+		req.Header.Set("X-Owner-Token", owner)
+	}
+	// Do request
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		http.Error(w, "controller unreachable", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	// Copy response
+	for k, vs := range resp.Header {
+		for _, v := range vs {
+			w.Header().Add(k, v)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
+}
+
 // addChatMessage appends a message to a network chat history and broadcasts to subscribers.
 func (a *API) addChatMessage(networkID, from, text string) ChatMessage {
 	msg := ChatMessage{
@@ -869,7 +928,7 @@ func (a *API) handleChatStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 
 	ch := a.subscribeChat(nid)
-	// Send last messages initially
+	// Send last messages initially and a heartbeat to transition EventSource to open
 	a.netMu.RLock()
 	history := a.chatHistories[nid]
 	a.netMu.RUnlock()
@@ -878,21 +937,30 @@ func (a *API) handleChatStream(w http.ResponseWriter, r *http.Request) {
 			b, _ := json.Marshal(m)
 			fmt.Fprintf(w, "data: %s\n\n", string(b))
 		}
+		// initial heartbeat comment
+		fmt.Fprintf(w, ": ping\n\n")
 		flusher.Flush()
 	}
-	notify := w.(http.CloseNotifier).CloseNotify()
-	go func() {
-		<-notify
-		a.unsubscribeChat(nid, ch)
-	}()
-	if flusher, ok := w.(http.Flusher); ok {
-		for msg := range ch {
-			b, _ := json.Marshal(msg)
-			fmt.Fprintf(w, "data: %s\n\n", string(b))
-			flusher.Flush()
+	ctx := r.Context()
+	ticker := time.NewTicker(20 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			a.unsubscribeChat(nid, ch)
+			return
+		case msg := <-ch:
+			if flusher, ok := w.(http.Flusher); ok {
+				b, _ := json.Marshal(msg)
+				fmt.Fprintf(w, "data: %s\n\n", string(b))
+				flusher.Flush()
+			}
+		case <-ticker.C:
+			if flusher, ok := w.(http.Flusher); ok {
+				fmt.Fprintf(w, ": ping\n\n")
+				flusher.Flush()
+			}
 		}
-	} else {
-		a.unsubscribeChat(nid, ch)
 	}
 }
 

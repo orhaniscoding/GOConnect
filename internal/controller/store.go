@@ -7,11 +7,14 @@ import (
 )
 
 type Network struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	JoinSecret  string `json:"joinSecret,omitempty"`
-	AllowChat   bool   `json:"allowChat"`
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Description     string `json:"description"`
+	JoinSecret      string `json:"joinSecret,omitempty"`
+	AllowChat       bool   `json:"allowChat"`
+	OwnerToken      string `json:"ownerToken,omitempty"`
+	Visible         bool   `json:"visible"`
+	RequireApproval bool   `json:"requireApproval"`
 }
 
 type Member struct {
@@ -29,9 +32,18 @@ type ChatMessage struct {
 }
 
 type State struct {
-	Networks map[string]*Network           `json:"networks"`
-	Members  map[string]map[string]*Member `json:"members"` // networkID -> nodeID -> Member
-	Chats    map[string][]*ChatMessage     `json:"chats"`   // networkID -> messages
+	Networks map[string]*Network                `json:"networks"`
+	Members  map[string]map[string]*Member      `json:"members"`  // networkID -> nodeID -> Member
+	Chats    map[string][]*ChatMessage          `json:"chats"`    // networkID -> messages
+	Bans     map[string]map[string]bool         `json:"bans"`     // networkID -> nodeID -> banned
+	Requests map[string]map[string]*JoinRequest `json:"requests"` // networkID -> requestID -> request
+}
+
+// JoinRequest represents a pending approval to join a network.
+type JoinRequest struct {
+	ID        string `json:"id"`
+	Nickname  string `json:"nickname"`
+	CreatedAt int64  `json:"createdAt"`
 }
 
 type Store struct {
@@ -47,6 +59,8 @@ func NewStore(file string) *Store {
 			Networks: map[string]*Network{},
 			Members:  map[string]map[string]*Member{},
 			Chats:    map[string][]*ChatMessage{},
+			Bans:     map[string]map[string]bool{},
+			Requests: map[string]map[string]*JoinRequest{},
 		},
 	}
 }

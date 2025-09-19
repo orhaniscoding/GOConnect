@@ -292,13 +292,10 @@ async function showNetworkDetails(networkId, joined) {
         showNetworkDetails(networkId, joined);
       }, controllerMode));
       detailsPanel.appendChild(renderEffectivePolicyPanel(policy));
-      // If controller mode, sync chat from controller endpoint
-      if (controllerMode) {
-        fetch(`/api/controller/networks/${settings.ID || settings.Id || settings.id}/chat`)
-          .then(r => r.json())
-          .then(chat => {
-            if (window.updateChatUI) window.updateChatUI(chat);
-          });
+      // Owner Tools: show when a Controller URL is configured
+      if (isControllerConfigured()) {
+        const ownerPanel = await renderOwnerToolsPanel(networkId);
+        detailsPanel.appendChild(ownerPanel);
       }
     } else {
       detailsPanel.innerHTML = "<div>Not a member of this network.</div>";
@@ -306,6 +303,366 @@ async function showNetworkDetails(networkId, joined) {
   } catch (err) {
     detailsPanel.innerHTML = `<div>Error loading details: ${err.message || err}</div>`;
   }
+}
+
+// Helper for proxying to controller with CSRF and owner token headers
+// If options._networkId is provided, prefer per-network token: goc_owner_token::<controller>::<networkId>
+async function controllerFetch(path, options = {}) {
+  const ctrl = window._goc_controller_url || '';
+  const nid = options._networkId || '';
+  let ownerToken = '';
+  if (ctrl && nid) {
+    ownerToken = localStorage.getItem(`goc_owner_token::${ctrl}::${nid}`) || '';
+  }
+  if (!ownerToken) {
+    ownerToken = localStorage.getItem(ctrl ? `goc_owner_token::${ctrl}` : 'goc_owner_token') || '';
+  }
+  const headers = Object.assign({}, options.headers || {}, { 'X-CSRF-Token': CSRF });
+  if (ownerToken) headers['X-Owner-Token'] = ownerToken;
+  const res = await fetch(path, {
+    credentials: 'same-origin',
+    ...options,
+    headers,
+  });
+  return res;
+}
+
+function isControllerConfigured() {
+  return Boolean(window._goc_controller_url);
+}
+
+// Build the Owner Tools panel: members + pending requests + admin actions
+async function renderOwnerToolsPanel(networkId) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  const ctrl = window._goc_controller_url || '';
+  const netTokenKey = ctrl ? `goc_owner_token::${ctrl}::${networkId}` : '';
+  const ctrlTokenKey = ctrl ? `goc_owner_token::${ctrl}` : 'goc_owner_token';
+  const hasNetToken = netTokenKey ? Boolean(localStorage.getItem(netTokenKey)) : false;
+  const hasCtrlToken = Boolean(localStorage.getItem(ctrlTokenKey));
+  const metaText = hasNetToken ? (t('owner.tokenSourceNetwork') || 'Using per-network owner token')
+                  : hasCtrlToken ? (t('owner.tokenSourceController') || 'Using controller-level owner token')
+                  : (t('owner.tokenSourceNone') || 'Owner token not set');
+  card.innerHTML = `
+    <h3>${t('owner.title') || 'Owner Tools'}</h3>
+    <div class="meta">${metaText}</div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center;">
+      <button type="button" id="owner-refresh">${t('owner.refresh') || 'Refresh Snapshot'}</button>
+      <button type="button" id="owner-public">${t('owner.makePublic') || 'Make Public'}</button>
+      <button type="button" id="owner-private">${t('owner.makePrivate') || 'Make Private'}</button>
+      <input type="password" id="owner-new-secret" placeholder="${t('owner.newSecretPlaceholder') || 'New join secret'}" style="min-width:200px;">
+      <button type="button" id="owner-rotate">${t('owner.rotateSecret') || 'Rotate Secret'}</button>
+      <button type="button" id="owner-delete" style="margin-left:auto;">${t('owner.delete') || 'Delete Network'}</button>
+    </div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px;">
+      <input type="password" id="owner-network-token" placeholder="${t('owner.networkTokenLabel') || 'Owner token for this network'}" style="min-width:240px;">
+      <button type="button" id="owner-save-network-token">${t('owner.saveNetworkToken') || 'Save Network Token'}</button>
+      <button type="button" id="owner-clear-network-token">${t('owner.clearNetworkToken') || 'Clear Network Token'}</button>
+    </div>
+    <div id="owner-flags" class="meta" style="margin-top:6px;"></div>
+    <div id="owner-snapshot" class="owner-snapshot" style="margin-top:10px;"></div>
+  `;
+
+  const snapEl = card.querySelector('#owner-snapshot');
+
+  async function loadSnapshot() {
+    snapEl.innerHTML = `<div>${t('owner.loading') || 'Loading snapshot...'}</div>`;
+    try {
+  const res = await controllerFetch(`/api/controller/networks/${networkId}/snapshot`, {_networkId: networkId});
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`${res.status} ${res.statusText}${text?`: ${text}`:''}`);
+      }
+      const data = await res.json();
+      renderSnapshot(data);
+    } catch (e) {
+      snapEl.innerHTML = `<div class="error">${t('owner.snapshotFailed') || 'Snapshot failed'}: ${e.message || e}</div>`;
+    }
+  }
+
+  function renderSnapshot(snap) {
+    const members = Array.isArray(snap.members) ? snap.members : [];
+    const reqs = Array.isArray(snap.requests) ? snap.requests : [];
+    const bans = Array.isArray(snap.bans) ? snap.bans : [];
+    const PAGE = 50;
+    const flagsEl = card.querySelector('#owner-flags');
+    if (flagsEl) {
+      const vis = (snap.visible ? t('owner.flagPublic') || 'Public' : t('owner.flagPrivate') || 'Private');
+      const appr = (snap.requireApproval ? t('owner.flagApprovalOn') || 'Approval Required' : t('owner.flagApprovalOff') || 'Auto-Join');
+      flagsEl.innerHTML = `<span class="badge ${snap.visible ? 'running':'stopped'}">${vis}</span> <span class="badge info">${appr}</span>`;
+    }
+    // Search inputs
+    const searchRow = document.createElement('div');
+    searchRow.className = 'row';
+    searchRow.style.gap = '8px';
+    searchRow.innerHTML = `
+      <input id="owner-search-members" placeholder="${t('owner.searchMembers') || 'Search members'}" style="flex:1;min-width:220px;">
+      <input id="owner-search-requests" placeholder="${t('owner.searchRequests') || 'Search requests'}" style="flex:1;min-width:220px;">
+      <input id="owner-search-bans" placeholder="${t('owner.searchBans') || 'Search bans'}" style="flex:1;min-width:220px;">
+    `;
+
+    const membersTable = document.createElement('table');
+    membersTable.className = 'table';
+    membersTable.innerHTML = `
+      <thead><tr><th>${t('owner.node') || 'Node'}</th><th>${t('owner.nickname') || 'Nickname'}</th><th>${t('owner.ip') || 'IP'}</th><th>${t('owner.actions') || 'Actions'}</th></tr></thead>
+      <tbody></tbody>
+    `;
+    const mtbody = membersTable.querySelector('tbody');
+    let memPage = 0;
+    const memRender = () => {
+      mtbody.innerHTML = '';
+      const q = (document.getElementById('owner-search-members')?.value || '').toLowerCase();
+      const filtered = q ? members.filter(m => (`${m.nodeId||m.NodeID||''} ${m.nickname||m.Nickname||''} ${m.ip||m.IP||''}`).toLowerCase().includes(q)) : members;
+      const start = memPage * PAGE;
+      const slice = filtered.slice(start, start + PAGE);
+      slice.forEach(m => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${m.nodeId || m.NodeID || ''}</td>
+          <td>${m.nickname || m.Nickname || ''}</td>
+          <td>${m.ip || m.IP || ''}</td>
+          <td>
+            <button type="button" data-act="kick" data-id="${m.nodeId || m.NodeID || ''}">${t('owner.kick') || 'Kick'}</button>
+            <button type="button" data-act="ban" data-id="${m.nodeId || m.NodeID || ''}">${t('owner.ban') || 'Ban'}</button>
+          </td>`;
+        mtbody.appendChild(tr);
+      });
+      memPager.textContent = `${t('owner.page') || 'Page'} ${memPage+1} / ${Math.max(1, Math.ceil(filtered.length / PAGE))}`;
+      prevBtn.disabled = memPage === 0;
+      nextBtn.disabled = start + PAGE >= filtered.length;
+    };
+    const memPager = document.createElement('span');
+    const prevBtn = document.createElement('button'); prevBtn.type='button'; prevBtn.textContent = t('owner.prev') || 'Prev'; prevBtn.onclick=()=>{ if (memPage>0){memPage--; memRender();}};
+    const nextBtn = document.createElement('button'); nextBtn.type='button'; nextBtn.textContent = t('owner.next') || 'Next'; nextBtn.onclick=()=>{ memPage++; memRender(); };
+    const memControls = document.createElement('div'); memControls.className='row'; memControls.style.gap='8px'; memControls.append(prevBtn, nextBtn, memPager);
+    // initial render
+    memRender();
+
+    const reqTable = document.createElement('table');
+    reqTable.className = 'table';
+    reqTable.innerHTML = `
+      <thead><tr><th>${t('owner.request') || 'Request'}</th><th>${t('owner.nickname') || 'Nickname'}</th><th>${t('owner.created') || 'Created'}</th><th>${t('owner.actions') || 'Actions'}</th></tr></thead>
+      <tbody></tbody>
+    `;
+    const rtbody = reqTable.querySelector('tbody');
+    let reqPage = 0;
+    const reqRender = () => {
+      rtbody.innerHTML = '';
+      const q = (document.getElementById('owner-search-requests')?.value || '').toLowerCase();
+      const filtered = q ? reqs.filter(r => (`${r.id||r.ID||''} ${r.nickname||r.Nickname||''}`).toLowerCase().includes(q)) : reqs;
+      const start = reqPage * PAGE;
+      const slice = filtered.slice(start, start + PAGE);
+      slice.forEach(r => {
+        const tr = document.createElement('tr');
+        const ts = r.createdAt || r.CreatedAt || 0;
+        const created = ts ? new Date(ts*1000).toLocaleString() : '';
+        tr.innerHTML = `
+          <td>${r.id || r.ID || ''}</td>
+          <td>${r.nickname || r.Nickname || ''}</td>
+          <td>${created}</td>
+          <td>
+            <button type="button" data-act="approve" data-id="${r.id || r.ID || ''}">${t('owner.approve') || 'Approve'}</button>
+            <button type="button" data-act="reject" data-id="${r.id || r.ID || ''}">${t('owner.reject') || 'Reject'}</button>
+          </td>`;
+        rtbody.appendChild(tr);
+      });
+      reqPager.textContent = `${t('owner.page') || 'Page'} ${reqPage+1} / ${Math.max(1, Math.ceil(filtered.length / PAGE))}`;
+      prevReq.disabled = reqPage === 0;
+      nextReq.disabled = start + PAGE >= filtered.length;
+    };
+    const reqPager = document.createElement('span');
+    const prevReq = document.createElement('button'); prevReq.type='button'; prevReq.textContent=t('owner.prev')||'Prev'; prevReq.onclick=()=>{ if (reqPage>0){reqPage--; reqRender();}};
+    const nextReq = document.createElement('button'); nextReq.type='button'; nextReq.textContent=t('owner.next')||'Next'; nextReq.onclick=()=>{ reqPage++; reqRender(); };
+    const reqControls = document.createElement('div'); reqControls.className='row'; reqControls.style.gap='8px'; reqControls.append(prevReq, nextReq, reqPager);
+    reqRender();
+
+    // Bans table
+    const bansTable = document.createElement('table');
+    bansTable.className = 'table';
+    bansTable.innerHTML = `
+      <thead><tr><th>${t('owner.banId') || 'Banned Node'}</th><th>${t('owner.actions') || 'Actions'}</th></tr></thead>
+      <tbody></tbody>
+    `;
+    const btbody = bansTable.querySelector('tbody');
+    let banPage = 0;
+    const banRender = () => {
+      btbody.innerHTML = '';
+      const q = (document.getElementById('owner-search-bans')?.value || '').toLowerCase();
+      const filtered = q ? bans.filter(x => (`${x}`).toLowerCase().includes(q)) : bans;
+      const start = banPage * PAGE;
+      const slice = filtered.slice(start, start + PAGE);
+      slice.forEach(b => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${b}</td>
+          <td>
+            <button type="button" data-act="unban" data-id="${b}">${t('owner.unban') || 'Unban'}</button>
+          </td>`;
+        btbody.appendChild(tr);
+      });
+      banPager.textContent = `${t('owner.page') || 'Page'} ${banPage+1} / ${Math.max(1, Math.ceil(filtered.length / PAGE))}`;
+      prevBan.disabled = banPage === 0;
+      nextBan.disabled = start + PAGE >= filtered.length;
+    };
+    const banPager = document.createElement('span');
+    const prevBan = document.createElement('button'); prevBan.type='button'; prevBan.textContent=t('owner.prev')||'Prev'; prevBan.onclick=()=>{ if (banPage>0){banPage--; banRender();}};
+    const nextBan = document.createElement('button'); nextBan.type='button'; nextBan.textContent=t('owner.next')||'Next'; nextBan.onclick=()=>{ banPage++; banRender(); };
+    const banControls = document.createElement('div'); banControls.className='row'; banControls.style.gap='8px'; banControls.append(prevBan, nextBan, banPager);
+    banRender();
+
+  snapEl.innerHTML = '';
+  // Top search row with live filtering
+  snapEl.appendChild(searchRow);
+  const wrap1 = document.createElement('div');
+  const h1 = document.createElement('h4');
+  h1.textContent = t('owner.members') || 'Members';
+  wrap1.appendChild(h1);
+  wrap1.appendChild(membersTable);
+  wrap1.appendChild(memControls);
+  const wrap2 = document.createElement('div');
+  const h2 = document.createElement('h4');
+  h2.textContent = t('owner.pending') || 'Pending Join Requests';
+  wrap2.appendChild(h2);
+  wrap2.appendChild(reqTable);
+  wrap2.appendChild(reqControls);
+  const wrap3 = document.createElement('div');
+  const h3 = document.createElement('h4');
+  h3.textContent = t('owner.bans') || 'Bans';
+  wrap3.appendChild(h3);
+  wrap3.appendChild(bansTable);
+  wrap3.appendChild(banControls);
+  snapEl.append(wrap1, wrap2, wrap3);
+
+    // live re-filtering without re-fetching
+    searchRow.addEventListener('input', () => {
+      memPage = 0; reqPage = 0; banPage = 0;
+      memRender(); reqRender(); banRender();
+    });
+
+    // bind actions on the two tables
+    snapEl.querySelectorAll('button[data-act]')?.forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const act = btn.getAttribute('data-act');
+        const id = btn.getAttribute('data-id');
+        try {
+          if (act === 'kick') {
+            await controllerFetch(`/api/controller/networks/${networkId}/admin/kick`, {method:'POST', body: JSON.stringify({nodeId: id}), headers:{'Content-Type':'application/json'}, _networkId: networkId});
+          } else if (act === 'ban') {
+            await controllerFetch(`/api/controller/networks/${networkId}/admin/ban`, {method:'POST', body: JSON.stringify({nodeId: id}), headers:{'Content-Type':'application/json'}, _networkId: networkId});
+          } else if (act === 'approve') {
+            await controllerFetch(`/api/controller/networks/${networkId}/admin/approve`, {method:'POST', body: JSON.stringify({requestId: id}), headers:{'Content-Type':'application/json'}, _networkId: networkId});
+          } else if (act === 'reject') {
+            await controllerFetch(`/api/controller/networks/${networkId}/admin/reject`, {method:'POST', body: JSON.stringify({requestId: id}), headers:{'Content-Type':'application/json'}, _networkId: networkId});
+          } else if (act === 'unban') {
+            await controllerFetch(`/api/controller/networks/${networkId}/admin/unban`, {method:'POST', body: JSON.stringify({nodeId: id}), headers:{'Content-Type':'application/json'}, _networkId: networkId});
+          }
+          toast(t('owner.actionSuccess') || 'Action completed', 'success');
+          await loadSnapshot();
+        } catch (e) {
+          toast(`${t('owner.actionFailed') || 'Action failed'}: ${e.message || e}`, 'error');
+        }
+      });
+    });
+  }
+
+  // Top-level action bindings
+  card.querySelector('#owner-refresh').addEventListener('click', loadSnapshot);
+  // search is handled locally via searchRow listener in renderSnapshot
+  card.querySelector('#owner-public').addEventListener('click', async () => {
+    try {
+      await controllerFetch(`/api/controller/networks/${networkId}/admin/visibility`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({visible:true}), _networkId: networkId});
+      await loadSnapshot();
+    } catch (e) { toast(`${t('owner.makePublicFailed') || 'Make public failed'}: ${e.message || e}`, 'error'); }
+  });
+  card.querySelector('#owner-private').addEventListener('click', async () => {
+    try {
+      await controllerFetch(`/api/controller/networks/${networkId}/admin/visibility`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({visible:false}), _networkId: networkId});
+      await loadSnapshot();
+    } catch (e) { toast(`${t('owner.makePrivateFailed') || 'Make private failed'}: ${e.message || e}`, 'error'); }
+  });
+  card.querySelector('#owner-rotate').addEventListener('click', async () => {
+    const val = card.querySelector('#owner-new-secret').value.trim();
+    if (!val) { alert(t('owner.enterSecret') || 'Enter a new secret'); return; }
+    try {
+      await controllerFetch(`/api/controller/networks/${networkId}/admin/secret`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({joinSecret: val}), _networkId: networkId});
+      card.querySelector('#owner-new-secret').value = '';
+      await loadSnapshot();
+    } catch (e) { toast(`${t('owner.rotateFailed') || 'Rotate secret failed'}: ${e.message || e}`, 'error'); }
+  });
+  card.querySelector('#owner-delete').addEventListener('click', async () => {
+    if (!confirm(t('owner.deleteConfirm') || 'Delete this network? This cannot be undone.')) return;
+    try {
+      const res = await controllerFetch(`/api/controller/networks/${networkId}`, {method:'DELETE'});
+      if (!res.ok && res.status !== 204) {
+        const txt = await res.text();
+        throw new Error(`${res.status} ${res.statusText}${txt?`: ${txt}`:''}`);
+      }
+      // after delete, refresh networks list
+      toast(t('owner.actionSuccess') || 'Action completed', 'success');
+      await loadNetworks();
+    } catch (e) { toast(`${t('owner.actionFailed') || 'Action failed'}: ${e.message || e}`, 'error'); }
+  });
+
+  // initial snapshot
+  loadSnapshot();
+  // Initialize per-network token field
+  const tokenInput = card.querySelector('#owner-network-token');
+  if (tokenInput) {
+    tokenInput.value = netTokenKey ? (localStorage.getItem(netTokenKey) || '') : '';
+  }
+  const saveBtn = card.querySelector('#owner-save-network-token');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', () => {
+      if (!netTokenKey) return;
+      const v = (tokenInput.value || '').trim();
+      if (v) {
+        localStorage.setItem(netTokenKey, v);
+        toast(t('owner.tokenSaved') || 'Owner token saved for this network', 'success');
+      }
+    });
+  }
+  const clearBtn = card.querySelector('#owner-clear-network-token');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
+      if (!netTokenKey) return;
+      localStorage.removeItem(netTokenKey);
+      if (tokenInput) tokenInput.value = '';
+      toast(t('owner.tokenCleared') || 'Owner token cleared for this network', 'success');
+    });
+  }
+  return card;
+}
+
+// Toast notifications
+function ensureToastContainer() {
+  if (document.getElementById('toast-container')) return;
+  const div = document.createElement('div');
+  div.id = 'toast-container';
+  div.style.position = 'fixed';
+  div.style.right = '16px';
+  div.style.bottom = '16px';
+  div.style.zIndex = '9999';
+  document.body.appendChild(div);
+}
+
+function toast(message, type = 'info') {
+  ensureToastContainer();
+  const div = document.createElement('div');
+  div.textContent = message;
+  div.style.marginTop = '8px';
+  div.style.padding = '10px 12px';
+  div.style.borderRadius = '4px';
+  div.style.fontSize = '13px';
+  div.style.color = '#fff';
+  div.style.boxShadow = '0 2px 8px rgba(0,0,0,0.4)';
+  div.style.transition = 'opacity 0.3s';
+  div.style.opacity = '1';
+  if (type === 'success') div.style.background = '#2e7d32';
+  else if (type === 'error') div.style.background = '#c62828';
+  else div.style.background = '#424242';
+  document.getElementById('toast-container').appendChild(div);
+  setTimeout(() => { div.style.opacity = '0'; }, 2800);
+  setTimeout(() => { div.remove(); }, 3200);
 }
 
 async function joinNetwork(payload) {
@@ -362,6 +719,7 @@ async function loadSettings() {
   try {
     const res = await fetch("/api/settings");
     const s = await res.json();
+    window._goc_controller_url = s.ControllerURL || "";
     document.getElementById("port").value = s.Port;
     document.getElementById("mtu").value = s.MTU;
     document.getElementById("log_level").value = s.LogLevel;
@@ -372,7 +730,12 @@ async function loadSettings() {
     document.getElementById("udp_port").value = s.UDPPort || 45820;
     document.getElementById("peers").value = (s.Peers || []).join(",");
     document.getElementById("stun_servers").value = (s.StunServers || []).join(",");
-    const tpc = (s.TrustedPeerCerts || []).join("\n\n");
+  const tpc = (s.TrustedPeerCerts || []).join("\n\n");
+  // restore owner token (keyed by controller URL)
+  const tokenKey = window._goc_controller_url ? `goc_owner_token::${window._goc_controller_url}` : 'goc_owner_token';
+  const ownerToken = localStorage.getItem(tokenKey) || '';
+    const ownerEl = document.getElementById('owner_token');
+    if (ownerEl) ownerEl.value = ownerToken;
     const tpcEl = document.getElementById("trusted_peer_certs");
     if (tpcEl) tpcEl.value = tpc;
   } catch (err) {
@@ -434,6 +797,16 @@ function bindActions() {
   if (form) {
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
+      const ownerEl = document.getElementById('owner_token');
+      const ownerToken = ownerEl ? ownerEl.value : '';
+      const ctrlUrl = (document.getElementById("controller_url").value || '').trim();
+      const tokenKey = ctrlUrl ? `goc_owner_token::${ctrlUrl}` : 'goc_owner_token';
+      if (ownerToken) {
+        localStorage.setItem(tokenKey, ownerToken);
+      } else {
+        localStorage.removeItem(tokenKey);
+      }
+      const tpcEl = document.getElementById("trusted_peer_certs");
       const body = {
         port: parseInt(document.getElementById("port").value, 10),
         mtu: parseInt(document.getElementById("mtu").value, 10),
@@ -454,7 +827,7 @@ function bindActions() {
           .split(",")
           .map((s) => s.trim())
           .filter(Boolean),
-        trusted_peer_certs: (document.getElementById("trusted_peer_certs")?.value || "")
+        trusted_peer_certs: ((tpcEl && tpcEl.value) ? tpcEl.value : "")
           .split(/\n{2,}/)
           .map((s) => s.trim())
           .filter(Boolean),
@@ -569,14 +942,8 @@ function connectChatStream(networkId) {
 }
 
 function appendChatMessage(msg) {
-        const statusEl = document.getElementById('chat-status');
-        if (res.status === 403) {
-          if (statusEl) statusEl.textContent = t('chat.disabled') || 'Chat disabled';
-        } else if (res.status === 429) {
-          if (statusEl) statusEl.textContent = t('chat.rateLimited') || 'Rate limited';
-        } else {
-          if (statusEl) statusEl.textContent = t('chat.sendFailed') || 'Send failed';
-        }
+  const messagesEl = document.getElementById('chat-messages');
+  if (!messagesEl) return;
   const time = msg.At ? new Date(msg.At).toLocaleTimeString() : '';
   const line = document.createElement('div');
   line.textContent = `[${time}] ${msg.From||''}: ${msg.Text||''}`;

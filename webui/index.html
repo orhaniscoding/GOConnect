@@ -113,11 +113,15 @@
           <h3 data-i18n="settings.controller">Controller & Relays</h3>
           <label><span data-i18n="settings.controllerURL">Controller URL</span> <input type="text" id="controller_url" data-i18n-placeholder="settings.controllerPlaceholder"></label>
           <label><span data-i18n="settings.relayURLs">Relay URLs</span> <input type="text" id="relay_urls" data-i18n-placeholder="settings.relayPlaceholder"></label>
+          <label><span>Owner Token (local only)</span> <input type="password" id="owner_token" placeholder="Controller owner token"></label>
 
           <h3 data-i18n="settings.transport">Transport</h3>
           <label><span data-i18n="settings.udpPort">UDP Port</span> <input type="number" id="udp_port"></label>
           <label><span data-i18n="settings.peers">Peers</span> <input type="text" id="peers" data-i18n-placeholder="settings.peersPlaceholder"></label>
           <label><span data-i18n="settings.stunServers">STUN Servers</span> <input type="text" id="stun_servers" data-i18n-placeholder="settings.stunPlaceholder"></label>
+          <label><span data-i18n="settings.trustedPeerCerts">Trusted Peer Certs (PEM or file paths)</span>
+            <textarea id="trusted_peer_certs" rows="6" placeholder="-----BEGIN CERTIFICATE----- ...\n\nC:\\ProgramData\\GOConnect\\secrets\\peer.crt"></textarea>
+          </label>
 
           <div class="row">
             <button type="submit" data-i18n="settings.save">Save Settings</button>

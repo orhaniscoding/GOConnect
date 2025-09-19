@@ -72,6 +72,17 @@ Her iki binary ve ilgili scriptleri aynı makinede kurup yukarıdaki adımları 
 - Agent’lar ağa katılırken bu token’ı kullanır
  - Güvenilir eş sertifikaları: Ayarlardaki `trusted_peer_certs` alanı hem dosya yolu (göreli yollar `ProgramData/GOConnect/secrets` altına göre çözümlenir) hem de satır içi PEM içeriğini ("-----BEGIN CERTIFICATE-----" ile başlayan) destekler.
  - Katılım sırrı (JoinSecret): Bir ağ için sır tanımlandıysa katılım sırasında boş bırakılamaz ve eşleşmelidir; aksi halde 400/403 döner.
+ - Controller proxy: Agent artık `/api/controller/*` isteklerini `settings.controller_url` adresine iletir ve `secrets/controller_token.txt` içindeki bearer token'ı ekler.
+ - Owner Tools (sahip araçları): Ayarlar sayfasındaki "Owner Token (local only)" alanına ağın owner token'ını girin (tarayıcıda lokal saklanır). Networks bölümünde bir ağa tıkladığınızda Owner Tools kartı görünür: Public/Private görünürlük, sır döndürme, kick/ban/unban, istek onay/red, silme.
+ - Admin uç noktaları (controller tarafı, `X-Owner-Token` gerektirir):
+    - `POST /api/controller/networks/{id}/admin/visibility` {visible}
+    - `POST /api/controller/networks/{id}/admin/secret` {joinSecret}
+    - `POST /api/controller/networks/{id}/admin/kick` {nodeId}
+    - `POST /api/controller/networks/{id}/admin/ban` {nodeId}
+    - `POST /api/controller/networks/{id}/admin/unban` {nodeId}
+    - `POST /api/controller/networks/{id}/admin/approve` {requestId}
+    - `POST /api/controller/networks/{id}/admin/reject` {requestId}
+    - `DELETE /api/controller/networks/{id}`
 
 ### Sıkça Sorulanlar (FAQ)
 - **Sadece controller kurarsam agent kurmak zorunda mıyım?** Hayır, sadece controller kurmak yeterlidir. Agent sadece istemci cihazlara kurulmalıdır.
@@ -158,6 +169,17 @@ You can install both binaries and their scripts on the same machine and follow t
 - Agents use this token to join the network
  - Trusted peer certificates: The `trusted_peer_certs` setting accepts either file paths (relative paths are resolved against `ProgramData/GOConnect/secrets`) or inline PEM strings containing "-----BEGIN CERTIFICATE-----".
  - JoinSecret enforcement: If a network has a `join_secret` configured, clients must supply a non-empty matching secret when joining; otherwise, the API returns 400 (missing) or 403 (mismatch).
+ - Controller proxy: The agent now forwards `/api/controller/*` requests to the configured `settings.controller_url`, automatically attaching the bearer token from `secrets/controller_token.txt`.
+ - Owner Tools UI: Enter your network owner token in Settings under "Owner Token (local only)" (stored locally in the browser). In Networks, click a joined network to reveal the Owner Tools card with visibility, secret rotation, kick/ban/unban, approve/reject requests, and delete network actions.
+ - Admin endpoints (on the controller, require `X-Owner-Token`):
+    - `POST /api/controller/networks/{id}/admin/visibility` {visible}
+    - `POST /api/controller/networks/{id}/admin/secret` {joinSecret}
+    - `POST /api/controller/networks/{id}/admin/kick` {nodeId}
+    - `POST /api/controller/networks/{id}/admin/ban` {nodeId}
+    - `POST /api/controller/networks/{id}/admin/unban` {nodeId}
+    - `POST /api/controller/networks/{id}/admin/approve` {requestId}
+    - `POST /api/controller/networks/{id}/admin/reject` {requestId}
+    - `DELETE /api/controller/networks/{id}`
 
 ### Frequently Asked Questions (FAQ)
 - **If I only install the controller, do I need the agent?** No, the agent is only for client devices. The controller can run alone.

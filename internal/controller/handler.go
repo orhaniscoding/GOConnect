@@ -63,6 +63,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleListNetworks(w, r)
 	case r.Method == "POST" && r.URL.Path == "/api/controller/networks":
 		h.handleCreateNetwork(w, r)
+	case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/controller/networks/") &&
+		!strings.HasSuffix(r.URL.Path, "/join") && !strings.HasSuffix(r.URL.Path, "/snapshot") && !strings.HasSuffix(r.URL.Path, "/chat"):
+		h.handleDeleteNetwork(w, r)
 	// Ağlara katılma
 	// /api/controller/networks/{id}/join
 	case r.Method == "POST" && len(r.URL.Path) > 28 && r.URL.Path[:28] == "/api/controller/networks/" && r.URL.Path[len(r.URL.Path)-5:] == "/join":
@@ -75,6 +78,20 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// /api/controller/networks/{id}/chat
 	case r.Method == "POST" && len(r.URL.Path) > 28 && r.URL.Path[:28] == "/api/controller/networks/" && r.URL.Path[len(r.URL.Path)-5:] == "/chat":
 		h.handlePostChat(w, r)
+	case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/admin/visibility"):
+		h.handleSetVisibility(w, r)
+	case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/admin/secret"):
+		h.handleRotateSecret(w, r)
+	case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/admin/kick"):
+		h.handleKick(w, r)
+	case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/admin/ban"):
+		h.handleBan(w, r)
+	case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/admin/unban"):
+		h.handleUnban(w, r)
+	case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/admin/approve"):
+		h.handleApprove(w, r)
+	case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/admin/reject"):
+		h.handleReject(w, r)
 	default:
 		h.notFound(w)
 	}
@@ -104,6 +121,18 @@ func (h *Handler) handleJoinNetwork(w http.ResponseWriter, r *http.Request) {
 	}
 	if netw.JoinSecret != "" && netw.JoinSecret != req.JoinSecret {
 		w.WriteHeader(http.StatusForbidden)
+		return
+	}
+	if netw.RequireApproval {
+		s := h.store.State()
+		if s.Requests[id] == nil {
+			s.Requests[id] = map[string]*JoinRequest{}
+		}
+		rid := h.nextID()
+		s.Requests[id][rid] = &JoinRequest{ID: rid, Nickname: req.Nickname, CreatedAt: time.Now().Unix()}
+		_ = h.store.Save()
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte("pending"))
 		return
 	}
 	if s.Members[id] == nil {
@@ -149,11 +178,35 @@ func (h *Handler) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 			chats = append(chats, msg)
 		}
 	}
+	// Pending requests (for owner UI)
+	reqs := []*JoinRequest{}
+	for _, jr := range s.Requests[id] {
+		reqs = append(reqs, jr)
+	}
+	// Bans list (node IDs)
+	bans := []string{}
+	for nodeID, banned := range s.Bans[id] {
+		if banned {
+			bans = append(bans, nodeID)
+		}
+	}
+	// Network flags for UI badges
+	netw := s.Networks[id]
+	vis := false
+	reqAppr := false
+	if netw != nil {
+		vis = netw.Visible
+		reqAppr = netw.RequireApproval
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(struct {
-		Members []*Member      `json:"members"`
-		Chats   []*ChatMessage `json:"chats"`
-	}{members, chats})
+		Members         []*Member      `json:"members"`
+		Chats           []*ChatMessage `json:"chats"`
+		Requests        []*JoinRequest `json:"requests"`
+		Bans            []string       `json:"bans"`
+		Visible         bool           `json:"visible"`
+		RequireApproval bool           `json:"requireApproval"`
+	}{members, chats, reqs, bans, vis, reqAppr})
 }
 
 // Chat gönderme endpointi
@@ -209,6 +262,9 @@ func parseInt64(s string) (int64, error) {
 func (h *Handler) handleListNetworks(w http.ResponseWriter, r *http.Request) {
 	nets := []*Network{}
 	for _, n := range h.store.State().Networks {
+		if !n.Visible {
+			continue
+		}
 		nets = append(nets, n)
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -217,10 +273,12 @@ func (h *Handler) handleListNetworks(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleCreateNetwork(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		JoinSecret  string `json:"joinSecret"`
-		AllowChat   bool   `json:"allowChat"`
+		Name            string `json:"name"`
+		Description     string `json:"description"`
+		JoinSecret      string `json:"joinSecret"`
+		AllowChat       bool   `json:"allowChat"`
+		Visible         bool   `json:"visible"`
+		RequireApproval bool   `json:"requireApproval"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -228,16 +286,268 @@ func (h *Handler) handleCreateNetwork(w http.ResponseWriter, r *http.Request) {
 	}
 	id := h.nextID()
 	net := &Network{
-		ID:          id,
-		Name:        req.Name,
-		Description: req.Description,
-		JoinSecret:  req.JoinSecret,
-		AllowChat:   req.AllowChat,
+		ID:              id,
+		Name:            req.Name,
+		Description:     req.Description,
+		JoinSecret:      req.JoinSecret,
+		AllowChat:       req.AllowChat,
+		Visible:         req.Visible,
+		RequireApproval: req.RequireApproval,
+	}
+	// Set owner from Authorization token
+	auth := r.Header.Get("Authorization")
+	if strings.HasPrefix(auth, "Bearer ") {
+		net.OwnerToken = strings.TrimPrefix(auth, "Bearer ")
+	}
+	// Owner token from header (preferred)
+	if v := r.Header.Get("X-Owner-Token"); strings.TrimSpace(v) != "" {
+		net.OwnerToken = strings.TrimSpace(v)
 	}
 	h.store.State().Networks[id] = net
 	_ = h.store.Save()
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(net)
+}
+
+// --- Admin & helper methods ---
+func (h *Handler) isOwner(r *http.Request, n *Network) bool {
+	v := strings.TrimSpace(r.Header.Get("X-Owner-Token"))
+	return n.OwnerToken != "" && v == n.OwnerToken
+}
+
+func (h *Handler) handleDeleteNetwork(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/api/controller/networks/")
+	s := h.store.State()
+	net := s.Networks[id]
+	if net == nil {
+		h.notFound(w)
+		return
+	}
+	if !h.isOwner(r, net) {
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
+	delete(s.Networks, id)
+	delete(s.Members, id)
+	delete(s.Chats, id)
+	delete(s.Bans, id)
+	delete(s.Requests, id)
+	_ = h.store.Save()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) handleSetVisibility(w http.ResponseWriter, r *http.Request) {
+	id := extractAdminID(r.URL.Path, "/admin/visibility")
+	s := h.store.State()
+	net := s.Networks[id]
+	if net == nil {
+		h.notFound(w)
+		return
+	}
+	if !h.isOwner(r, net) {
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
+	var req struct {
+		Visible bool `json:"visible"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(400)
+		return
+	}
+	net.Visible = req.Visible
+	_ = h.store.Save()
+	w.WriteHeader(204)
+}
+
+func (h *Handler) handleRotateSecret(w http.ResponseWriter, r *http.Request) {
+	id := extractAdminID(r.URL.Path, "/admin/secret")
+	s := h.store.State()
+	net := s.Networks[id]
+	if net == nil {
+		h.notFound(w)
+		return
+	}
+	if !h.isOwner(r, net) {
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
+	var req struct {
+		JoinSecret string `json:"joinSecret"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(400)
+		return
+	}
+	net.JoinSecret = strings.TrimSpace(req.JoinSecret)
+	_ = h.store.Save()
+	w.WriteHeader(204)
+}
+
+func (h *Handler) handleKick(w http.ResponseWriter, r *http.Request) {
+	id := extractAdminID(r.URL.Path, "/admin/kick")
+	s := h.store.State()
+	net := s.Networks[id]
+	if net == nil {
+		h.notFound(w)
+		return
+	}
+	if !h.isOwner(r, net) {
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
+	var req struct {
+		NodeID string `json:"nodeId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.NodeID) == "" {
+		w.WriteHeader(400)
+		return
+	}
+	if s.Members[id] != nil {
+		delete(s.Members[id], req.NodeID)
+	}
+	_ = h.store.Save()
+	w.WriteHeader(204)
+}
+
+func (h *Handler) handleBan(w http.ResponseWriter, r *http.Request) {
+	id := extractAdminID(r.URL.Path, "/admin/ban")
+	s := h.store.State()
+	net := s.Networks[id]
+	if net == nil {
+		h.notFound(w)
+		return
+	}
+	if !h.isOwner(r, net) {
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
+	var req struct {
+		NodeID string `json:"nodeId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.NodeID) == "" {
+		w.WriteHeader(400)
+		return
+	}
+	if s.Bans[id] == nil {
+		s.Bans[id] = map[string]bool{}
+	}
+	s.Bans[id][req.NodeID] = true
+	if s.Members[id] != nil {
+		delete(s.Members[id], req.NodeID)
+	}
+	_ = h.store.Save()
+	w.WriteHeader(204)
+}
+
+func (h *Handler) handleUnban(w http.ResponseWriter, r *http.Request) {
+	id := extractAdminID(r.URL.Path, "/admin/unban")
+	s := h.store.State()
+	net := s.Networks[id]
+	if net == nil {
+		h.notFound(w)
+		return
+	}
+	if !h.isOwner(r, net) {
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
+	var req struct {
+		NodeID string `json:"nodeId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.NodeID) == "" {
+		w.WriteHeader(400)
+		return
+	}
+	if s.Bans[id] != nil {
+		delete(s.Bans[id], req.NodeID)
+	}
+	_ = h.store.Save()
+	w.WriteHeader(204)
+}
+
+func (h *Handler) handleApprove(w http.ResponseWriter, r *http.Request) {
+	id := extractAdminID(r.URL.Path, "/admin/approve")
+	s := h.store.State()
+	net := s.Networks[id]
+	if net == nil {
+		h.notFound(w)
+		return
+	}
+	if !h.isOwner(r, net) {
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
+	var req struct {
+		RequestID string `json:"requestId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.RequestID) == "" {
+		w.WriteHeader(400)
+		return
+	}
+	jrMap := s.Requests[id]
+	if jrMap == nil {
+		h.notFound(w)
+		return
+	}
+	jr, ok := jrMap[req.RequestID]
+	if !ok {
+		h.notFound(w)
+		return
+	}
+	if s.Members[id] == nil {
+		s.Members[id] = map[string]*Member{}
+	}
+	nodeID := h.nextID()
+	ip := allocateIP(id, nodeID, s)
+	s.Members[id][nodeID] = &Member{NodeID: nodeID, Nickname: jr.Nickname, IP: ip, LastSeen: time.Now().Unix(), ChatEnabled: true}
+	delete(s.Requests[id], req.RequestID)
+	_ = h.store.Save()
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"nodeId": nodeID, "ip": ip})
+}
+
+func (h *Handler) handleReject(w http.ResponseWriter, r *http.Request) {
+	id := extractAdminID(r.URL.Path, "/admin/reject")
+	s := h.store.State()
+	net := s.Networks[id]
+	if net == nil {
+		h.notFound(w)
+		return
+	}
+	if !h.isOwner(r, net) {
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
+	var req struct {
+		RequestID string `json:"requestId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.RequestID) == "" {
+		w.WriteHeader(400)
+		return
+	}
+	if s.Requests[id] != nil {
+		delete(s.Requests[id], req.RequestID)
+	}
+	_ = h.store.Save()
+	w.WriteHeader(204)
+}
+
+func extractAdminID(path, suffix string) string {
+	base := "/api/controller/networks/"
+	if !strings.HasPrefix(path, base) || !strings.HasSuffix(path, suffix) {
+		return ""
+	}
+	mid := strings.TrimSuffix(strings.TrimPrefix(path, base), suffix)
+	if strings.HasSuffix(mid, "/admin") {
+		mid = strings.TrimSuffix(mid, "/admin")
+	}
+	mid = strings.TrimSuffix(mid, "/")
+	parts := strings.Split(mid, "/")
+	if len(parts) >= 1 {
+		return parts[0]
+	}
+	return ""
 }
 
 func (h *Handler) notFound(w http.ResponseWriter) {
