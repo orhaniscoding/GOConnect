@@ -338,14 +338,14 @@ async function renderOwnerToolsPanel(networkId) {
   const ctrl = window._goc_controller_url || '';
   const netTokenKey = ctrl ? `goc_owner_token::${ctrl}::${networkId}` : '';
   const ctrlTokenKey = ctrl ? `goc_owner_token::${ctrl}` : 'goc_owner_token';
-  const hasNetToken = netTokenKey ? Boolean(localStorage.getItem(netTokenKey)) : false;
-  const hasCtrlToken = Boolean(localStorage.getItem(ctrlTokenKey));
-  const metaText = hasNetToken ? (t('owner.tokenSourceNetwork') || 'Using per-network owner token')
-                  : hasCtrlToken ? (t('owner.tokenSourceController') || 'Using controller-level owner token')
-                  : (t('owner.tokenSourceNone') || 'Owner token not set');
+  let hasNetToken = netTokenKey ? Boolean(localStorage.getItem(netTokenKey)) : false;
+  let hasCtrlToken = Boolean(localStorage.getItem(ctrlTokenKey));
+  let metaText = hasNetToken ? (t('owner.tokenSourceNetwork') || 'Using per-network owner token')
+                : hasCtrlToken ? (t('owner.tokenSourceController') || 'Using controller-level owner token')
+                : (t('owner.tokenSourceNone') || 'Owner token not set');
   card.innerHTML = `
     <h3>${t('owner.title') || 'Owner Tools'}</h3>
-    <div class="meta">${metaText}</div>
+    <div class="meta" id="owner-token-meta">${metaText} ${hasNetToken ? '<span class="badge info" style="margin-left:6px">NET</span>' : ''}</div>
     <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center;">
       <button type="button" id="owner-refresh">${t('owner.refresh') || 'Refresh Snapshot'}</button>
       <button type="button" id="owner-public">${t('owner.makePublic') || 'Make Public'}</button>
@@ -607,6 +607,7 @@ async function renderOwnerToolsPanel(networkId) {
   loadSnapshot();
   // Initialize per-network token field
   const tokenInput = card.querySelector('#owner-network-token');
+  const metaEl = card.querySelector('#owner-token-meta');
   if (tokenInput) {
     tokenInput.value = netTokenKey ? (localStorage.getItem(netTokenKey) || '') : '';
   }
@@ -618,6 +619,12 @@ async function renderOwnerToolsPanel(networkId) {
       if (v) {
         localStorage.setItem(netTokenKey, v);
         toast(t('owner.tokenSaved') || 'Owner token saved for this network', 'success');
+        // dynamic meta update without reload
+        hasNetToken = true; hasCtrlToken = Boolean(localStorage.getItem(ctrlTokenKey));
+        metaText = hasNetToken ? (t('owner.tokenSourceNetwork') || 'Using per-network owner token')
+                  : hasCtrlToken ? (t('owner.tokenSourceController') || 'Using controller-level owner token')
+                  : (t('owner.tokenSourceNone') || 'Owner token not set');
+        if (metaEl) metaEl.innerHTML = `${metaText} <span class="badge info" style="margin-left:6px">NET</span>`;
       }
     });
   }
@@ -628,6 +635,12 @@ async function renderOwnerToolsPanel(networkId) {
       localStorage.removeItem(netTokenKey);
       if (tokenInput) tokenInput.value = '';
       toast(t('owner.tokenCleared') || 'Owner token cleared for this network', 'success');
+      // dynamic meta update without reload
+      hasNetToken = false; hasCtrlToken = Boolean(localStorage.getItem(ctrlTokenKey));
+      metaText = hasNetToken ? (t('owner.tokenSourceNetwork') || 'Using per-network owner token')
+                : hasCtrlToken ? (t('owner.tokenSourceController') || 'Using controller-level owner token')
+                : (t('owner.tokenSourceNone') || 'Owner token not set');
+      if (metaEl) metaEl.innerHTML = metaText + (hasNetToken ? ' <span class="badge info" style="margin-left:6px">NET</span>' : '');
     });
   }
   return card;
