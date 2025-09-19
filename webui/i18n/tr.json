@@ -130,5 +130,6 @@
   ,"owner.clearNetworkToken": "Ağ Jetonunu Temizle"
   ,"owner.tokenSaved": "Bu ağ için sahip jetonu kaydedildi"
   ,"owner.tokenCleared": "Bu ağ için sahip jetonu temizlendi"
+  ,"owner.badgeNetTooltip": "Ağa özel sahip jetonu ayarlı"
   
 }

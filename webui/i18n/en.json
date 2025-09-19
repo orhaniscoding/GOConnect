@@ -130,5 +130,6 @@
   ,"owner.clearNetworkToken": "Clear Network Token"
   ,"owner.tokenSaved": "Owner token saved for this network"
   ,"owner.tokenCleared": "Owner token cleared for this network"
+  ,"owner.badgeNetTooltip": "Per-network owner token is set"
   
 }

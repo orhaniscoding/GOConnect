@@ -180,10 +180,21 @@ async function loadNetworks() {
       const info = document.createElement("div");
       info.className = "network-info";
       const textParts = [name, `(${id})`];
+      // Show NET badge if there's a per-network token for this network
+      const ctrl = window._goc_controller_url || '';
+      const hasNetToken = ctrl ? Boolean(localStorage.getItem(`goc_owner_token::${ctrl}::${id}`)) : false;
       if (address) {
         textParts.push(address);
       }
       info.textContent = textParts.join(" ");
+      if (hasNetToken) {
+        const b = document.createElement('span');
+        b.className = 'badge info';
+        b.style.marginLeft = '6px';
+        b.textContent = 'NET';
+        b.title = t('owner.badgeNetTooltip') || 'Per-network owner token is set';
+        info.appendChild(b);
+      }
       if (description) {
         const desc = document.createElement("div");
         desc.className = "network-desc";
@@ -343,8 +354,13 @@ async function renderOwnerToolsPanel(networkId) {
   let metaText = hasNetToken ? (t('owner.tokenSourceNetwork') || 'Using per-network owner token')
                 : hasCtrlToken ? (t('owner.tokenSourceController') || 'Using controller-level owner token')
                 : (t('owner.tokenSourceNone') || 'Owner token not set');
+  const collapseKey = ctrl ? `goc_owner_tools_collapsed::${ctrl}::${networkId}` : `goc_owner_tools_collapsed::${networkId}`;
+  const initialCollapsed = localStorage.getItem(collapseKey) === '1';
   card.innerHTML = `
-    <h3>${t('owner.title') || 'Owner Tools'}</h3>
+    <h3 style="display:flex;align-items:center;gap:8px;">
+      <button type="button" id="owner-toggle" aria-expanded="${!initialCollapsed}" style="font-size:12px;line-height:18px;">${initialCollapsed ? '+' : '–'}</button>
+      <span>${t('owner.title') || 'Owner Tools'}</span>
+    </h3>
     <div class="meta" id="owner-token-meta">${metaText} ${hasNetToken ? '<span class="badge info" style="margin-left:6px">NET</span>' : ''}</div>
     <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center;">
       <button type="button" id="owner-refresh">${t('owner.refresh') || 'Refresh Snapshot'}</button>
@@ -603,8 +619,34 @@ async function renderOwnerToolsPanel(networkId) {
     } catch (e) { toast(`${t('owner.actionFailed') || 'Action failed'}: ${e.message || e}`, 'error'); }
   });
 
-  // initial snapshot
-  loadSnapshot();
+  // collapse/expand behavior + lazy load
+  const toggleBtn = card.querySelector('#owner-toggle');
+  const rows = card.querySelectorAll('.row');
+  const flagsEl = card.querySelector('#owner-flags');
+  function setCollapsed(collapsed) {
+    rows.forEach(r => { r.style.display = collapsed ? 'none' : ''; });
+    if (flagsEl) flagsEl.style.display = collapsed ? 'none' : '';
+    if (snapEl) snapEl.style.display = collapsed ? 'none' : '';
+    if (toggleBtn) {
+      toggleBtn.textContent = collapsed ? '+' : '–';
+      toggleBtn.setAttribute('aria-expanded', String(!collapsed));
+    }
+  }
+  setCollapsed(initialCollapsed);
+  if (toggleBtn) {
+    toggleBtn.addEventListener('click', async () => {
+      const collapsed = toggleBtn.getAttribute('aria-expanded') === 'false';
+      const nextCollapsed = !collapsed;
+      setCollapsed(nextCollapsed);
+      localStorage.setItem(collapseKey, nextCollapsed ? '1' : '0');
+      if (!nextCollapsed && snapEl && !snapEl.hasChildNodes()) {
+        await loadSnapshot();
+      }
+    });
+  }
+  if (!initialCollapsed) {
+    loadSnapshot();
+  }
   // Initialize per-network token field
   const tokenInput = card.querySelector('#owner-network-token');
   const metaEl = card.querySelector('#owner-token-meta');
@@ -624,7 +666,7 @@ async function renderOwnerToolsPanel(networkId) {
         metaText = hasNetToken ? (t('owner.tokenSourceNetwork') || 'Using per-network owner token')
                   : hasCtrlToken ? (t('owner.tokenSourceController') || 'Using controller-level owner token')
                   : (t('owner.tokenSourceNone') || 'Owner token not set');
-        if (metaEl) metaEl.innerHTML = `${metaText} <span class="badge info" style="margin-left:6px">NET</span>`;
+  if (metaEl) metaEl.innerHTML = `${metaText} <span class="badge info" style="margin-left:6px" title="${t('owner.badgeNetTooltip') || 'Per-network owner token is set'}">NET</span>`;
       }
     });
   }
@@ -640,7 +682,7 @@ async function renderOwnerToolsPanel(networkId) {
       metaText = hasNetToken ? (t('owner.tokenSourceNetwork') || 'Using per-network owner token')
                 : hasCtrlToken ? (t('owner.tokenSourceController') || 'Using controller-level owner token')
                 : (t('owner.tokenSourceNone') || 'Owner token not set');
-      if (metaEl) metaEl.innerHTML = metaText + (hasNetToken ? ' <span class="badge info" style="margin-left:6px">NET</span>' : '');
+  if (metaEl) metaEl.innerHTML = metaText + (hasNetToken ? ` <span class="badge info" style="margin-left:6px" title="${t('owner.badgeNetTooltip') || 'Per-network owner token is set'}">NET</span>` : '');
     });
   }
   return card;
