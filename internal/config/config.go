@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -119,7 +121,7 @@ func Default(language string) *Config {
 		},
 		Api: ApiConfig{
 			Auth:        "bearer",
-			BearerToken: "testtoken",
+			BearerToken: "",
 			RateLimit:   ApiRateLimit{RPS: 10, Burst: 20},
 			Validation:  true,
 		},
@@ -141,6 +143,13 @@ func Default(language string) *Config {
 			Addr:    "127.0.0.1:9090",
 		},
 	}
+}
+
+// GenerateBearerToken returns a random 32-hex-character token.
+func GenerateBearerToken() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 func ProgramDataBase() string {
@@ -192,6 +201,11 @@ func Load() (*Config, error) {
 	cfg := Default(systemLocale())
 	if err := yaml.Unmarshal(b, cfg); err != nil {
 		return nil, fmt.Errorf("config parse: %w", err)
+	}
+	// If bearer token is empty, auto-generate one for local management convenience.
+	if strings.EqualFold(strings.TrimSpace(cfg.Api.Auth), "bearer") && strings.TrimSpace(cfg.Api.BearerToken) == "" {
+		cfg.Api.BearerToken = GenerateBearerToken()
+		_ = Save(cfg)
 	}
 	if cfg.Networks == nil {
 		cfg.Networks = []Network{}

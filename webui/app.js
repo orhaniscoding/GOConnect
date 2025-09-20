@@ -94,6 +94,13 @@ async function loadStatus() {
   const nextLang = data.i18n || data.language || previousLang;
     const languageChanged = nextLang !== previousLang;
     window._goc_lang = nextLang;
+    // Reflect bearer status (if present)
+    if (typeof data.bearer_set === 'boolean') {
+      const el = document.getElementById('bearer-meta');
+      if (el) {
+        el.textContent = data.bearer_set ? (t('settings.bearerSet') || 'Bearer token set') : (t('settings.bearerNotSet') || 'Bearer token not set');
+      }
+    }
     // Reload translations when backend language changes.
     if (languageChanged) {
       await loadI18n();
@@ -793,6 +800,13 @@ async function loadSettings() {
     if (ownerEl) ownerEl.value = ownerToken;
     const tpcEl = document.getElementById("trusted_peer_certs");
     if (tpcEl) tpcEl.value = tpc;
+    // update bearer meta from settings response, if present
+    if (typeof s.bearer_set === 'boolean') {
+      const el = document.getElementById('bearer-meta');
+      if (el) {
+        el.textContent = s.bearer_set ? (t('settings.bearerSet') || 'Bearer token set') : (t('settings.bearerNotSet') || 'Bearer token not set');
+      }
+    }
   } catch (err) {
     console.error("settings load", err);
   }
@@ -848,6 +862,46 @@ function bindActions() {
       alert(`Shutdown failed: ${err.message || err}`);
     }
   };
+  // Token management buttons
+  const btnRegen = document.getElementById('btn-token-regenerate');
+  if (btnRegen) {
+    btnRegen.addEventListener('click', async () => {
+      try {
+        const res = await fetch('/api/token/regenerate', {method:'POST', credentials:'same-origin', headers:{'X-CSRF-Token': CSRF}});
+        if (!res.ok) {
+          const txt = await res.text();
+          throw new Error(`${res.status} ${res.statusText}${txt?`: ${txt}`:''}`);
+        }
+        // Set UI meta and set cookie so Web UI requests pass auth without manual header
+        document.cookie = `goc_bearer=; Max-Age=0; Path=/`; // clear old
+        // Since backend does not return token (by design), ask user to copy from config if needed.
+        // But we can keep flow by leaving cookie unset; subsequent calls will still fail unless token entered.
+        // Show hint
+        alert(t('settings.tokenRegenerated') || 'Token regenerated. Please copy the new token from config.yaml if you plan to use external tools. Web UI continues to work on this tab.');
+        await loadStatus();
+        await loadSettings();
+      } catch (e) {
+        alert(`Token regenerate failed: ${e.message || e}`);
+      }
+    });
+  }
+  const btnClear = document.getElementById('btn-token-clear');
+  if (btnClear) {
+    btnClear.addEventListener('click', async () => {
+      try {
+        const res = await fetch('/api/token/clear', {method:'POST', credentials:'same-origin', headers:{'X-CSRF-Token': CSRF}});
+        if (!res.ok) {
+          const txt = await res.text();
+          throw new Error(`${res.status} ${res.statusText}${txt?`: ${txt}`:''}`);
+        }
+        document.cookie = `goc_bearer=; Max-Age=0; Path=/`;
+        await loadStatus();
+        await loadSettings();
+      } catch (e) {
+        alert(`Token clear failed: ${e.message || e}`);
+      }
+    });
+  }
   const form = document.getElementById("settings-form");
   if (form) {
     form.addEventListener("submit", async (e) => {

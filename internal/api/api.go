@@ -278,6 +278,9 @@ func (a *API) Serve(addr string, webDir string) *http.Server {
 	mux.Handle("/api/peers", chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { a.wrap(a.handlePeers)(w, r) })))
 	mux.HandleFunc("/api/logs/stream", a.handleLogsStream) // SSE left unauthenticated for now
 	mux.Handle("/api/settings", chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { a.wrap(a.handleSettings)(w, r) })))
+	// Token management endpoints
+	mux.Handle("/api/token/regenerate", chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { a.wrapPOST(a.handleTokenRegenerate)(w, r) })))
+	mux.Handle("/api/token/clear", chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { a.wrapPOST(a.handleTokenClear)(w, r) })))
 	// Optional metrics: if enabled in config, expose a Prometheus-style endpoint at /metrics (no auth middleware)
 	if a.cfg != nil && a.cfg.Metrics.Enabled {
 		mux.Handle("/metrics", metrics.Handler())
@@ -439,6 +442,7 @@ func (a *API) handleStatus(w http.ResponseWriter, r *http.Request) (int, any) {
 		"public_endpoint": a.state.PublicEndpoint(),
 		"csrf_token":      a.csrfToken,
 		"i18n":            a.cfg.Language, // frontend watches this key for language changes
+		"bearer_set":      strings.TrimSpace(a.cfg.Api.BearerToken) != "",
 	}
 }
 
@@ -597,7 +601,21 @@ func (a *API) handleSettings(w http.ResponseWriter, r *http.Request) (int, any) 
 	switch r.Method {
 	case http.MethodGet:
 		_, _, _, _, _, s := a.state.Snapshot()
-		return 200, s
+		// include obfuscated info whether bearer is set (do not leak token)
+		return 200, map[string]any{
+			"port":               s.Port,
+			"mtu":                s.MTU,
+			"log_level":          s.LogLevel,
+			"language":           s.Language,
+			"autostart":          s.Autostart,
+			"controller_url":     s.ControllerURL,
+			"relay_urls":         s.RelayURLs,
+			"udp_port":           s.UDPPort,
+			"peers":              s.Peers,
+			"stun_servers":       s.StunServers,
+			"trusted_peer_certs": s.TrustedPeerCerts,
+			"bearer_set":         strings.TrimSpace(a.cfg.Api.BearerToken) != "",
+		}
 	case http.MethodPut:
 		var in struct {
 			Port             int      `json:"port"`
@@ -668,6 +686,41 @@ func (a *API) handleSettings(w http.ResponseWriter, r *http.Request) (int, any) 
 	default:
 		return 405, map[string]string{"error": "method_not_allowed"}
 	}
+}
+
+// POST /api/token/regenerate - creates a new random bearer token and persists it
+func (a *API) handleTokenRegenerate(w http.ResponseWriter, r *http.Request) (int, any) {
+	if r.Method != http.MethodPost {
+		return 405, map[string]string{"error": "method_not_allowed"}
+	}
+	a.cfgMu.Lock()
+	a.cfg.Api.BearerToken = config.GenerateBearerToken()
+	if err := config.Save(a.cfg); err != nil {
+		a.cfgMu.Unlock()
+		return 500, map[string]string{"error": "save_failed"}
+	}
+	a.cfgMu.Unlock()
+	// Update state snapshot to keep UI consistent
+	_, _, _, _, _, s := a.state.Snapshot()
+	a.state.SetSettings(s)
+	return 200, map[string]any{"result": "ok", "bearer_set": true}
+}
+
+// POST /api/token/clear - clears the bearer token (disables auth)
+func (a *API) handleTokenClear(w http.ResponseWriter, r *http.Request) (int, any) {
+	if r.Method != http.MethodPost {
+		return 405, map[string]string{"error": "method_not_allowed"}
+	}
+	a.cfgMu.Lock()
+	a.cfg.Api.BearerToken = ""
+	if err := config.Save(a.cfg); err != nil {
+		a.cfgMu.Unlock()
+		return 500, map[string]string{"error": "save_failed"}
+	}
+	a.cfgMu.Unlock()
+	_, _, _, _, _, s := a.state.Snapshot()
+	a.state.SetSettings(s)
+	return 200, map[string]any{"result": "ok", "bearer_set": false}
 }
 
 func (a *API) handleDiagRun(w http.ResponseWriter, r *http.Request) (int, any) {

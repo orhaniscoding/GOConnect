@@ -32,6 +32,14 @@ func BearerAuth(tokenFn func() string, logger *log.Logger) func(http.Handler) ht
 				return
 			}
 			ah := r.Header.Get("Authorization")
+			// Also accept token via cookie for Web UI convenience
+			if ah == "" {
+				if ck, err := r.Cookie("goc_bearer"); err == nil {
+					if strings.TrimSpace(ck.Value) != "" {
+						ah = "Bearer " + ck.Value
+					}
+				}
+			}
 			if ah == "" {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusUnauthorized)
