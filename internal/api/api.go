@@ -365,6 +365,31 @@ func (a *API) csrfMiddleware(next http.Handler) http.Handler {
 			SameSite: http.SameSiteStrictMode,
 		})
 
+		// Also provide bearer token via HttpOnly cookie for Web UI convenience.
+		// This allows the UI to authenticate without exposing the token to JS.
+		// When token is empty, clear the cookie.
+		tok := strings.TrimSpace(a.cfg.Api.BearerToken)
+		if tok != "" {
+			http.SetCookie(w, &http.Cookie{
+				Name:     "goc_bearer",
+				Value:    tok,
+				HttpOnly: true,
+				Secure:   r.TLS != nil,
+				Path:     "/",
+				SameSite: http.SameSiteStrictMode,
+			})
+		} else {
+			http.SetCookie(w, &http.Cookie{
+				Name:     "goc_bearer",
+				Value:    "",
+				HttpOnly: true,
+				Secure:   r.TLS != nil,
+				Path:     "/",
+				SameSite: http.SameSiteStrictMode,
+				MaxAge:   -1, // delete
+			})
+		}
+
 		if r.Method != http.MethodGet {
 			// Loopback requests to /api/exit are allowed without CSRF (local management convenience).
 			if r.URL.Path == "/api/exit" && isLoopback(r.RemoteAddr) {
