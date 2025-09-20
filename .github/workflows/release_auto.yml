@@ -6,27 +6,37 @@ on:
   workflow_dispatch:
 
 jobs:
-  bump-tag-and-release:
+  bump-and-tag:
     runs-on: windows-latest
     permissions:
       contents: write
+    concurrency:
+      group: release-auto
+      cancel-in-progress: true
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout (full history for tags)
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # Simple semver bump: feat -> MINOR, fix/chore -> PATCH, feat! or BREAKING CHANGE -> MAJOR
+      - name: Set git user
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
       - name: Compute next version (Conventional Commits)
         id: semver
         shell: pwsh
         run: |
           git fetch --tags
           $lastTag = (git describe --tags --abbrev=0) 2>$null
-          if (-not $lastTag) { $lastTag = "v0.1.0" }
+          if (-not $lastTag) { $lastTag = "v0.1.0" }  # baseline for first auto release
           $logs = git log "$lastTag"..HEAD --pretty="%s%n%b"
+
           $bump = "patch"
           if ($logs -match "(?im)^\s*feat!:|BREAKING CHANGE:") { $bump = "major" }
-          elseif ($logs -match "(?im)^\s*feat:") { $bump = "minor" }
+          elseif ($logs -match "(?im)^\s*feat:")              { $bump = "minor" }
 
           function Inc-Version($v,$part) {
             if ($v.StartsWith("v")) { $v = $v.Substring(1) }
@@ -38,10 +48,27 @@ jobs:
             }
             return "v$maj.$min.$pat"
           }
+
           $newTag = Inc-Version $lastTag $bump
           "tag=$newTag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Next tag: $newTag"
 
-      - name: Create and push tag (to main repo)
+      - name: Skip if tag already exists
+        id: checktag
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.semver.outputs.tag }}"
+          git fetch --tags
+          $exists = (git tag --list $tag)
+          if ($exists) {
+            Write-Host "Tag $tag already exists. Skipping."
+            "skip=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          } else {
+            "skip=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          }
+
+      - name: Create and push tag
+        if: steps.checktag.outputs.skip == 'false'
         shell: pwsh
         run: |
           $tag = "${{ steps.semver.outputs.tag }}"
