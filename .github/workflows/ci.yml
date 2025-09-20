@@ -2,12 +2,15 @@ name: CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ "main", "master" ]
+    tags-ignore:
+      - "v*.*.*"
   pull_request:
-    branches: [ main, master ]
+    branches: [ "main", "master" ]
 
 jobs:
   test-windows:
+    if: github.ref_type != 'tag'
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -61,6 +64,7 @@ jobs:
           Write-Output ("{""ts"":""$ts"",""lvl"":""info"",""msg"":""ci-run""}")
 
   build-wintun:
+    if: github.ref_type != 'tag'
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -74,6 +78,7 @@ jobs:
         run: go build -tags=wintun ./...
 
   test-linux-race:
+    if: github.ref_type != 'tag'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
