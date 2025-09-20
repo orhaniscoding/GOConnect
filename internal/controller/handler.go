@@ -1,10 +1,16 @@
 package controller
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"goconnect/internal/config"
 	"io/ioutil"
+	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -36,21 +42,38 @@ func allocateIP(networkID, nodeID string, s *State) string {
 }
 
 type Handler struct {
-	store *Store
-	seq   atomic.Uint64
-	token string
+	store     *Store
+	seq       atomic.Uint64
+	token     string
+	adminPass string
 }
 
 func NewHandler(store *Store) *Handler {
-	token := ""
-	data, err := ioutil.ReadFile("secrets/controller_token.txt")
-	if err == nil {
-		token = strings.TrimSpace(string(data))
+	h := &Handler{store: store}
+	h.adminPass = strings.TrimSpace(os.Getenv("CONTROLLER_ADMIN_PASSWORD"))
+	// Load token from ProgramData secrets path; fallback to relative path
+	h.token = readToken()
+	if strings.TrimSpace(h.token) == "" {
+		// Auto-generate on first run
+		t := genToken()
+		_ = writeToken(t)
+		h.token = t
 	}
-	return &Handler{store: store, token: token}
+	return h
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Admin endpoints: protected by admin password or loopback-only
+	if strings.HasPrefix(r.URL.Path, "/admin/") {
+		if !h.adminAuthorized(r) {
+			w.Header().Set("WWW-Authenticate", "Basic realm=controller")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte("unauthorized"))
+			return
+		}
+		h.handleAdmin(w, r)
+		return
+	}
 	// Bearer token auth for all endpoints
 	auth := r.Header.Get("Authorization")
 	if !strings.HasPrefix(auth, "Bearer ") || strings.TrimPrefix(auth, "Bearer ") != h.token {
@@ -94,6 +117,99 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleReject(w, r)
 	default:
 		h.notFound(w)
+	}
+}
+
+// --- Admin helpers ---
+func (h *Handler) adminAuthorized(r *http.Request) bool {
+	// If adminPass set, require Basic Auth admin:<pass> from anywhere
+	if h.adminPass != "" {
+		u, p, ok := r.BasicAuth()
+		return ok && u == "admin" && p == h.adminPass
+	}
+	// Otherwise allow only loopback
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func genToken() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+func secretsPath() string {
+	_, _, secrets := config.Paths()
+	return secrets
+}
+
+func tokenFilePath() string {
+	return filepath.Join(secretsPath(), "controller_token.txt")
+}
+
+func readToken() string {
+	p := tokenFilePath()
+	if b, err := os.ReadFile(p); err == nil {
+		return strings.TrimSpace(string(b))
+	}
+	// fallback to legacy relative path
+	if b, err := ioutil.ReadFile("secrets/controller_token.txt"); err == nil {
+		return strings.TrimSpace(string(b))
+	}
+	return ""
+}
+
+func writeToken(tok string) error {
+	if err := os.MkdirAll(secretsPath(), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(tokenFilePath(), []byte(strings.TrimSpace(tok)), 0o600)
+}
+
+func clearToken() {
+	_ = os.Remove(tokenFilePath())
+}
+
+func (h *Handler) handleAdmin(w http.ResponseWriter, r *http.Request) {
+	switch {
+	case r.Method == http.MethodGet && r.URL.Path == "/admin/token":
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		masked := "(set)"
+		if strings.TrimSpace(h.token) == "" {
+			masked = "(not set)"
+		}
+		fmt.Fprintf(w, `<!doctype html><html><head><meta charset="utf-8"><title>GOConnect Controller Admin</title></head><body>
+		<h2>Controller Token</h2>
+		<p>Status: %s</p>
+		<form method="post" action="/admin/token/regenerate"><button type="submit">Regenerate</button></form>
+		<form method="post" action="/admin/token/clear" onsubmit="return confirm('Clear token? Agents will be blocked until updated.');"><button type="submit">Clear</button></form>
+		</body></html>`, masked)
+		return
+	case r.Method == http.MethodGet && r.URL.Path == "/admin/token/status":
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"set": strings.TrimSpace(h.token) != ""})
+		return
+	case r.Method == http.MethodPost && r.URL.Path == "/admin/token/regenerate":
+		t := genToken()
+		if err := writeToken(t); err != nil {
+			http.Error(w, "write failed", 500)
+			return
+		}
+		h.token = t
+		http.Redirect(w, r, "/admin/token", http.StatusSeeOther)
+		return
+	case r.Method == http.MethodPost && r.URL.Path == "/admin/token/clear":
+		clearToken()
+		h.token = ""
+		http.Redirect(w, r, "/admin/token", http.StatusSeeOther)
+		return
+	default:
+		http.NotFound(w, r)
+		return
 	}
 }
 

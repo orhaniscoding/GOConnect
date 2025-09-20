@@ -131,5 +131,12 @@
   ,"owner.tokenSaved": "Bu ağ için sahip jetonu kaydedildi"
   ,"owner.tokenCleared": "Bu ağ için sahip jetonu temizlendi"
   ,"owner.badgeNetTooltip": "Ağa özel sahip jetonu ayarlı"
+  ,"settings.controllerTokenPlaceholder": "Denetleyici jetonu (ajan -> denetleyici)"
+  ,"settings.controllerTokenSet": "Denetleyici Jetonunu Ayarla"
+  ,"settings.controllerTokenClear": "Temizle"
+  ,"settings.controllerTokenSetMeta": "Denetleyici jetonu ayarlı"
+  ,"settings.controllerTokenNotSetMeta": "Denetleyici jetonu ayarlı değil"
+  ,"settings.controllerTokenSetOk": "Denetleyici jetonu ayarlandı"
+  ,"settings.controllerTokenCleared": "Denetleyici jetonu temizlendi"
   
 }

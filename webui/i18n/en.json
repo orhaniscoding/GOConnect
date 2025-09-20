@@ -131,5 +131,12 @@
   ,"owner.tokenSaved": "Owner token saved for this network"
   ,"owner.tokenCleared": "Owner token cleared for this network"
   ,"owner.badgeNetTooltip": "Per-network owner token is set"
+  ,"settings.controllerTokenPlaceholder": "Controller token (agent -> controller)"
+  ,"settings.controllerTokenSet": "Set Controller Token"
+  ,"settings.controllerTokenClear": "Clear"
+  ,"settings.controllerTokenSetMeta": "Controller token is set"
+  ,"settings.controllerTokenNotSetMeta": "Controller token not set"
+  ,"settings.controllerTokenSetOk": "Controller token set"
+  ,"settings.controllerTokenCleared": "Controller token cleared"
   
 }

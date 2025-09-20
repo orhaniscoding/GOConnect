@@ -151,16 +151,19 @@ Windows'ta çalışan exe kilitli olabileceği için yeni sürüm `goconnect-ser
 $env:GOCONNECT_STORE_TYPE = 'memory'   # 'sqlite' | 'memory' (varsayılan: sqlite)
 $env:GOCONNECT_DATA_DIR = '.\data'     # sqlite dosyaları için dizin
 bin/goconnectcontroller.exe
-```
+### Dosya ve Dizin Yapısı
+- `goconnectcontroller.exe` — Controller binary'si (merkezi yönetim için)
+- `goconnect-service.exe` — Agent binary'si (istemci cihazlar için)
+- `build/scripts/install-service-controller.ps1` — Controller servisini kurar
+- `build/scripts/uninstall-service-controller.ps1` — Controller servisini kaldırır
+- `build/scripts/install-service-agent.ps1` — Agent servisini kurar
+- `build/scripts/uninstall-service-agent.ps1` — Agent servisini kaldırır
+- `secrets/controller_token.txt` — Controller token dosyası (repo içinde örnek). Çalışma zamanında gerçek token `%ProgramData%/GOConnect/secrets/controller_token.txt` altında tutulur (ilk çalıştırmada otomatik oluşturulur).
+- `webui/` — Web arayüzü dosyaları (gömülü gelir)
+- `internal/` — Backend ve ağ yönetim kodları
 
-### Güvenlik Notları
-
-- API Bearer Token: `api.bearer_token` güçlü bir değer olmalı, yalnızca yerel yönetim için kullanılmalıdır.
-- CSRF koruması: Tüm değiştirici POST istekleri `X-CSRF-Token` ister (çerezden alınır).
-- Gelecek: mTLS desteği planlanmaktadır.
-- Sırlar ve anahtarlar: Windows DPAPI ile şifreleme desteği mevcut (makine-ölçekli).
-- Güvenilir eş sertifikaları: `trusted_peer_certs` dosya yolu veya satır-içi PEM destekler.
-
+HTTP UI/API (Agent) varsayılan olarak http://127.0.0.1:2537 adresinde açılır.
+Controller HTTP API ve Admin sayfası varsayılan olarak http://127.0.0.1:2538 üzerinde çalışır.
 ### Test ve CI
 
 Tüm testler:
@@ -168,12 +171,11 @@ Tüm testler:
 go test ./... -count=1
 ```
 
+### Kalıcı Durum (Controller Store)
+
+Şu an controller, basit bir JSON dosyasıyla kalıcı durum tutar (varsayılan: `controller_state.json`, exe'nin yanına yazılır). İleride alternatif depolama seçenekleri (ör. SQLite) eklenebilir.
 Kapsam (coverage) profili ile:
 ```powershell
-go test -count=1 -covermode=atomic -coverpkg=./... -coverprofile=coverage.out ./...
-go tool cover -func=coverage.out
-```
-
 CI (GitHub Actions) iş akışları:
 - Windows: vet + golangci-lint + build + test + kapsam eşiği (>= %60)
 - Windows (Wintun): `go build -tags=wintun ./...` (compile-only)
@@ -182,13 +184,19 @@ CI (GitHub Actions) iş akışları:
 ---
 
 ### Kullanım Senaryoları ve Kurulum Rehberi
-
+4. Servis otomatik başlar. Admin sayfası: http://127.0.0.1:2538/admin/token (Varsayılan olarak sadece loopback erişimine açıktır.)
+5. Controller API adresi: `http://<sunucu-ip>:2538` (Agent’larda “Controller URL” olarak kullanın).
+6. Token dosyası çalışma zamanında `%ProgramData%/GOConnect/secrets/controller_token.txt` altında tutulur. Gerekirse Admin sayfasından yenileyebilir veya temizleyebilirsiniz.
+    - Uzaktan Admin erişimi için `CONTROLLER_ADMIN_PASSWORD` ortam değişkenini ayarlayın; bu durumda Basic Auth: `admin:<şifre>` gerekir. Aksi halde Admin yalnızca 127.0.0.1’den erişilebilir.
 #### 1. Sadece Controller Kurmak İsteyenler İçin (Sunucu/VPS)
 **Gereken Dosyalar:**
-- `goconnectcontroller.exe`
-- `build/scripts/install-service-controller.ps1`
-- `build/scripts/uninstall-service-controller.ps1`
-- (İlk kurulumda) `secrets/controller_token.txt`
+### Web UI ve Token Yönetimi
+- Agent web arayüzü: http://localhost:2537
+- Controller Admin: http://localhost:2538/admin/token (loopback; `CONTROLLER_ADMIN_PASSWORD` ayarlı ise Basic Auth ile uzaktan erişilebilir)
+- Controller token’ı çalışma zamanında `%ProgramData%/GOConnect/secrets/controller_token.txt` dosyasında bulunur (ilk çalıştırmada otomatik oluşturulur).
+- Agent tarafı: Ayarlar ekranından “Controller Token” alanı ile token’ı UI üzerinden set/clear yapabilirsiniz; ayrıca “Controller URL”’yi de girin. Elle dosya düzenlemek gerekmez.
+- Web UI 401 düzeltmesi: Server, HttpOnly `goc_bearer` çerezi ayarlayarak tarayıcıdaki UI’nin bearer token’ını JS’e sızdırmadan otomatik kullanmasını sağlar.
+ - Controller proxy: Agent artık `/api/controller/*` isteklerini `settings.controller_url` adresine iletir ve `%ProgramData%/GOConnect/secrets/controller_token.txt` içindeki bearer token'ı otomatik ekler.
 **Kurulum Adımları:**
 1. Yukarıdaki dosyaları bir klasöre kopyalayın (ör: `C:\GOConnect`).
 2. PowerShell’i yönetici olarak açın.
@@ -196,23 +204,25 @@ CI (GitHub Actions) iş akışları:
    ```powershell
    cd C:\GOConnect\build\scripts
    ./install-service-controller.ps1
-   ```
-4. Servis otomatik başlar. Web arayüzüne bağlanmak için: http://localhost:2537
-5. Token’ı `secrets/controller_token.txt` dosyasından alıp istemcilerde kullanabilirsiniz.
-**Not:** Sadece controller kurmak için agent kurmak zorunda değilsiniz.
+### Persistent Store (Controller)
 
-#### 2. Sadece Agent Kurmak İsteyenler İçin (İstemci Cihazlar)
-**Gereken Dosyalar:**
-- `goconnect-service.exe`
-- `build/scripts/install-service-agent.ps1`
-- `build/scripts/uninstall-service-agent.ps1`
+Currently, the controller persists its state in a simple JSON file (default: `controller_state.json`, written next to the executable). Alternative backends (e.g., SQLite) may be added later.
+   ```
+### File & Directory Structure
+- `goconnectcontroller.exe` — Controller binary (for central management)
+- `goconnect-service.exe` — Agent binary (for client devices)
+- `build/scripts/install-service-controller.ps1` — Installs controller as a service
+- `build/scripts/uninstall-service-controller.ps1` — Uninstalls controller service
+- `build/scripts/install-service-agent.ps1` — Installs agent as a service
+- `build/scripts/uninstall-service-agent.ps1` — Uninstalls agent service
+- `secrets/controller_token.txt` — Example token file in repo. At runtime the real token lives under `%ProgramData%/GOConnect/secrets/controller_token.txt` (auto-generated on first run).
+- `webui/` — Web UI files (embedded)
+- `internal/` — Backend and network management code
 **Kurulum Adımları:**
+The Agent HTTP UI/API starts at http://127.0.0.1:2537 by default.
+The Controller HTTP API and Admin page run on http://127.0.0.1:2538 by default.
 1. Dosyaları bir klasöre kopyalayın (ör: `C:\GOConnect`).
 2. PowerShell’i yönetici olarak açın.
-3. Komutları çalıştırın:
-   ```powershell
-   cd C:\GOConnect\build\scripts
-   ./install-service-agent.ps1
    ```
 4. Servis otomatik başlar. Web arayüzüne bağlanmak için: http://localhost:2537
 5. Controller’dan aldığınız token ve adres ile Web UI’dan ağa katılın.
@@ -221,13 +231,19 @@ CI (GitHub Actions) iş akışları:
 Her iki binary ve ilgili scriptleri aynı makinede kurup yukarıdaki adımları uygulayabilirsiniz. Her servis kendi başına çalışır.
 
 ### Web UI ve Token Yönetimi
-- Web arayüzü: http://localhost:2537
+4. The service will start automatically. Admin page: http://127.0.0.1:2538/admin/token (By default only loopback is allowed.)
+5. Controller API base URL: `http://<server-ip>:2538` (set this as “Controller URL” on agents).
+6. The token is stored at `%ProgramData%/GOConnect/secrets/controller_token.txt`. You can regenerate or clear it from the Admin page.
+    - To allow remote Admin access, set `CONTROLLER_ADMIN_PASSWORD` env var; then use Basic Auth `admin:<password>`. Otherwise Admin is loopback-only.
 - Controller token’ı: `secrets/controller_token.txt` dosyasında bulunur
 - Agent’lar ağa katılırken bu token’ı kullanır
- - Güvenilir eş sertifikaları: Ayarlardaki `trusted_peer_certs` alanı hem dosya yolu (göreli yollar `ProgramData/GOConnect/secrets` altına göre çözümlenir) hem de satır içi PEM içeriğini ("-----BEGIN CERTIFICATE-----" ile başlayan) destekler.
- - Katılım sırrı (JoinSecret): Bir ağ için sır tanımlandıysa katılım sırasında boş bırakılamaz ve eşleşmelidir; aksi halde 400/403 döner.
- - Controller proxy: Agent artık `/api/controller/*` isteklerini `settings.controller_url` adresine iletir ve `secrets/controller_token.txt` içindeki bearer token'ı ekler.
- - Owner Tools (sahip araçları): Ayarlar sayfasındaki "Owner Token (local only)" alanına ağın owner token'ını girin (tarayıcıda lokal saklanır). Networks bölümünde bir ağa tıkladığınızda Owner Tools kartı görünür: Public/Private görünürlük, sır döndürme, kick/ban/unban, istek onay/red, silme.
+### Web UI & Token Management
+- Agent Web UI: http://localhost:2537
+- Controller Admin: http://localhost:2538/admin/token (loopback; if `CONTROLLER_ADMIN_PASSWORD` is set, Basic Auth allows remote access)
+- Controller token lives under `%ProgramData%/GOConnect/secrets/controller_token.txt` (auto-generated on first run).
+- On the agent, you can set/clear the Controller Token from Settings in the Web UI; also set the “Controller URL”. No manual file edits are required.
+- 401 UX fix: the server sets a HttpOnly `goc_bearer` cookie so the browser UI can authenticate without exposing the token to JS.
+ - Controller proxy: The agent now forwards `/api/controller/*` requests to the configured `settings.controller_url`, automatically attaching the bearer token from `%ProgramData%/GOConnect/secrets/controller_token.txt`.
  - Admin uç noktaları (controller tarafı, `X-Owner-Token` gerektirir):
     - `POST /api/controller/networks/{id}/admin/visibility` {visible}
     - `POST /api/controller/networks/{id}/admin/secret` {joinSecret}

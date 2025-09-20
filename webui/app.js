@@ -807,6 +807,15 @@ async function loadSettings() {
         el.textContent = s.bearer_set ? (t('settings.bearerSet') || 'Bearer token set') : (t('settings.bearerNotSet') || 'Bearer token not set');
       }
     }
+    // Controller token status
+    try {
+      const res2 = await fetch('/api/controller/token/status', {credentials:'same-origin'});
+      if (res2.ok) {
+        const st = await res2.json();
+        const meta = document.getElementById('ctrl-token-meta');
+        if (meta) meta.textContent = st.set ? (t('settings.controllerTokenSetMeta') || 'Controller token is set') : (t('settings.controllerTokenNotSetMeta') || 'Controller token not set');
+      }
+    } catch {}
   } catch (err) {
     console.error("settings load", err);
   }
@@ -900,6 +909,28 @@ function bindActions() {
       } catch (e) {
         alert(`Token clear failed: ${e.message || e}`);
       }
+    });
+  }
+  // Controller token buttons
+  const btnCtrlSet = document.getElementById('btn-ctrl-token-set');
+  const btnCtrlClear = document.getElementById('btn-ctrl-token-clear');
+  if (btnCtrlSet) {
+    btnCtrlSet.addEventListener('click', async () => {
+      const el = document.getElementById('controller_token');
+      const val = el ? (el.value||'').trim() : '';
+      if (!val) { alert('Enter controller token'); return; }
+      const res = await fetch('/api/controller/token/set', {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-CSRF-Token': CSRF}, body: JSON.stringify({token: val})});
+      if (!res.ok) { const t = await res.text(); alert('Set failed: '+t); return; }
+      await loadSettings();
+      alert(t('settings.controllerTokenSetOk')||'Controller token set');
+    });
+  }
+  if (btnCtrlClear) {
+    btnCtrlClear.addEventListener('click', async () => {
+      const res = await fetch('/api/controller/token/clear', {method:'POST', credentials:'same-origin', headers:{'X-CSRF-Token': CSRF}});
+      if (!res.ok) { const t = await res.text(); alert('Clear failed: '+t); return; }
+      await loadSettings();
+      alert(t('settings.controllerTokenCleared')||'Controller token cleared');
     });
   }
   const form = document.getElementById("settings-form");

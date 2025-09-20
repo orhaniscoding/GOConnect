@@ -114,6 +114,12 @@
           <label><span data-i18n="settings.controllerURL">Controller URL</span> <input type="text" id="controller_url" data-i18n-placeholder="settings.controllerPlaceholder"></label>
           <label><span data-i18n="settings.relayURLs">Relay URLs</span> <input type="text" id="relay_urls" data-i18n-placeholder="settings.relayPlaceholder"></label>
           <label><span>Owner Token (local only)</span> <input type="password" id="owner_token" placeholder="Controller owner token"></label>
+          <div class="row" style="gap:8px;margin-top:6px;align-items:center;">
+            <input type="password" id="controller_token" placeholder="Controller token (agent -> controller)" data-i18n-placeholder="settings.controllerTokenPlaceholder" style="min-width:260px;">
+            <button type="button" id="btn-ctrl-token-set" data-i18n="settings.controllerTokenSet">Set Controller Token</button>
+            <button type="button" id="btn-ctrl-token-clear" data-i18n="settings.controllerTokenClear">Clear</button>
+            <span id="ctrl-token-meta" class="meta"></span>
+          </div>
 
           <h3 data-i18n="settings.transport">Transport</h3>
           <label><span data-i18n="settings.udpPort">UDP Port</span> <input type="number" id="udp_port"></label>

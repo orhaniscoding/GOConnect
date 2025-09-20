@@ -17,7 +17,6 @@ import (
 
 	webfs "goconnect/webui"
 	"io"
-	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
@@ -156,12 +155,13 @@ func New(state *core.State, cfg *config.Config, logger *log.Logger, shutdown fun
 		startTime:         time.Now(),
 	}
 	a.validate = newValidator()
-	// Load controller token if present
-	token := ""
-	if data, err := ioutil.ReadFile("secrets/controller_token.txt"); err == nil {
-		token = strings.TrimSpace(string(data))
+	// Load controller token from ProgramData secrets if present
+	if _, _, secretsDir := config.Paths(); secretsDir != "" {
+		p := filepath.Join(secretsDir, "controller_token.txt")
+		if b, err := os.ReadFile(p); err == nil {
+			a.controllerToken = strings.TrimSpace(string(b))
+		}
 	}
-	a.controllerToken = token
 	// attempt load persisted state (best-effort)
 	_ = a.loadAllOnce()
 	state.SetNetworks(mapNetworks(cfg.Networks))
@@ -278,6 +278,10 @@ func (a *API) Serve(addr string, webDir string) *http.Server {
 	mux.Handle("/api/peers", chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { a.wrap(a.handlePeers)(w, r) })))
 	mux.HandleFunc("/api/logs/stream", a.handleLogsStream) // SSE left unauthenticated for now
 	mux.Handle("/api/settings", chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { a.wrap(a.handleSettings)(w, r) })))
+	// Controller token management endpoints (agent-side)
+	mux.Handle("/api/controller/token/status", chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { a.wrap(a.handleControllerTokenStatus)(w, r) })))
+	mux.Handle("/api/controller/token/set", chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { a.wrapPOST(a.handleControllerTokenSet)(w, r) })))
+	mux.Handle("/api/controller/token/clear", chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { a.wrapPOST(a.handleControllerTokenClear)(w, r) })))
 	// Token management endpoints
 	mux.Handle("/api/token/regenerate", chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { a.wrapPOST(a.handleTokenRegenerate)(w, r) })))
 	mux.Handle("/api/token/clear", chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { a.wrapPOST(a.handleTokenClear)(w, r) })))
@@ -776,6 +780,41 @@ func (a *API) handleUpdateApply(w http.ResponseWriter, r *http.Request) (int, an
 	if err := updater.Apply(); err != nil {
 		return 500, map[string]any{"error": "update_apply_failed", "details": err.Error()}
 	}
+	return 200, map[string]string{"result": "ok"}
+}
+
+// --- Agent-side Controller Token Management ---
+// GET  /api/controller/token/status -> { set: bool }
+func (a *API) handleControllerTokenStatus(w http.ResponseWriter, r *http.Request) (int, any) {
+	return 200, map[string]any{"set": strings.TrimSpace(a.controllerToken) != ""}
+}
+
+// POST /api/controller/token/set { token: string }
+func (a *API) handleControllerTokenSet(w http.ResponseWriter, r *http.Request) (int, any) {
+	var in struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || strings.TrimSpace(in.Token) == "" {
+		return 400, map[string]string{"error": "bad_json"}
+	}
+	_, _, secrets := config.Paths()
+	if err := os.MkdirAll(secrets, 0o755); err != nil {
+		return 500, map[string]string{"error": "secrets_dir"}
+	}
+	p := filepath.Join(secrets, "controller_token.txt")
+	if err := os.WriteFile(p, []byte(strings.TrimSpace(in.Token)), 0o600); err != nil {
+		return 500, map[string]string{"error": "write_failed"}
+	}
+	a.controllerToken = strings.TrimSpace(in.Token)
+	return 200, map[string]string{"result": "ok"}
+}
+
+// POST /api/controller/token/clear
+func (a *API) handleControllerTokenClear(w http.ResponseWriter, r *http.Request) (int, any) {
+	_, _, secrets := config.Paths()
+	p := filepath.Join(secrets, "controller_token.txt")
+	_ = os.Remove(p)
+	a.controllerToken = ""
 	return 200, map[string]string{"result": "ok"}
 }
 
