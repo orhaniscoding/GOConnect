@@ -781,18 +781,29 @@ async function loadSettings() {
   try {
     const res = await fetch("/api/settings");
     const s = await res.json();
-    window._goc_controller_url = s.ControllerURL || "";
-    document.getElementById("port").value = s.Port;
-    document.getElementById("mtu").value = s.MTU;
-    document.getElementById("log_level").value = s.LogLevel;
-    document.getElementById("language").value = s.Language || "en";
-    document.getElementById("autostart").checked = s.Autostart;
-    document.getElementById("controller_url").value = s.ControllerURL || "";
-    document.getElementById("relay_urls").value = (s.RelayURLs || []).join(",");
-    document.getElementById("udp_port").value = s.UDPPort || 45820;
-    document.getElementById("peers").value = (s.Peers || []).join(",");
-    document.getElementById("stun_servers").value = (s.StunServers || []).join(",");
-  const tpc = (s.TrustedPeerCerts || []).join("\n\n");
+    // Backend returns snake_case keys; keep camelCase fallbacks for older agents
+    const port = s.port ?? s.Port;
+    const mtu = s.mtu ?? s.MTU;
+    const logLevel = s.log_level ?? s.LogLevel;
+  const language = (s.language ?? s.Language) || "en";
+    const autostart = s.autostart ?? s.Autostart;
+  const controllerURL = (s.controller_url ?? s.ControllerURL) || "";
+    const relayURLs = s.relay_urls ?? s.RelayURLs ?? [];
+    const udpPort = s.udp_port ?? s.UDPPort ?? 45820;
+    const peers = s.peers ?? s.Peers ?? [];
+    const stunServers = s.stun_servers ?? s.StunServers ?? [];
+    window._goc_controller_url = controllerURL || "";
+    document.getElementById("port").value = port || 0;
+    document.getElementById("mtu").value = mtu || 0;
+    document.getElementById("log_level").value = logLevel || "";
+    document.getElementById("language").value = language;
+    document.getElementById("autostart").checked = Boolean(autostart);
+    document.getElementById("controller_url").value = controllerURL || "";
+    document.getElementById("relay_urls").value = (Array.isArray(relayURLs)?relayURLs:[]).join(",");
+    document.getElementById("udp_port").value = udpPort;
+    document.getElementById("peers").value = (Array.isArray(peers)?peers:[]).join(",");
+    document.getElementById("stun_servers").value = (Array.isArray(stunServers)?stunServers:[]).join(",");
+  const tpc = (s.trusted_peer_certs || s.TrustedPeerCerts || []).join("\n\n");
   // restore owner token (keyed by controller URL)
   const tokenKey = window._goc_controller_url ? `goc_owner_token::${window._goc_controller_url}` : 'goc_owner_token';
   const ownerToken = localStorage.getItem(tokenKey) || '';
@@ -801,10 +812,11 @@ async function loadSettings() {
     const tpcEl = document.getElementById("trusted_peer_certs");
     if (tpcEl) tpcEl.value = tpc;
     // update bearer meta from settings response, if present
-    if (typeof s.bearer_set === 'boolean') {
+    if (typeof (s.bearer_set ?? s.bearerSet) === 'boolean') {
       const el = document.getElementById('bearer-meta');
       if (el) {
-        el.textContent = s.bearer_set ? (t('settings.bearerSet') || 'Bearer token set') : (t('settings.bearerNotSet') || 'Bearer token not set');
+        const bset = (s.bearer_set ?? s.bearerSet);
+        el.textContent = bset ? (t('settings.bearerSet') || 'Bearer token set') : (t('settings.bearerNotSet') || 'Bearer token not set');
       }
     }
     // Controller token status

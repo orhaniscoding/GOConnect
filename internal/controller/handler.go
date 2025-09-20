@@ -65,11 +65,21 @@ func NewHandler(store *Store) *Handler {
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Admin endpoints: protected by admin password or loopback-only
 	if strings.HasPrefix(r.URL.Path, "/admin/") {
-		if !h.adminAuthorized(r) {
-			w.Header().Set("WWW-Authenticate", "Basic realm=controller")
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte("unauthorized"))
+		// Enforce loopback-only for all /admin/*
+		if !isLoopbackRequest(r) {
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte("forbidden"))
 			return
+		}
+		// If a password is configured, also require Basic Auth locally
+		if h.adminPass != "" {
+			u, p, ok := r.BasicAuth()
+			if !ok || u != "admin" || p != h.adminPass {
+				w.Header().Set("WWW-Authenticate", "Basic realm=controller")
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte("unauthorized"))
+				return
+			}
 		}
 		h.handleAdmin(w, r)
 		return
@@ -121,6 +131,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // --- Admin helpers ---
+func isLoopbackRequest(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 func (h *Handler) adminAuthorized(r *http.Request) bool {
 	// If adminPass set, require Basic Auth admin:<pass> from anywhere
 	if h.adminPass != "" {
@@ -178,16 +197,26 @@ func (h *Handler) handleAdmin(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/admin/token":
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		masked := "(set)"
+		status := "(set)"
 		if strings.TrimSpace(h.token) == "" {
-			masked = "(not set)"
+			status = "(not set)"
 		}
-		fmt.Fprintf(w, `<!doctype html><html><head><meta charset="utf-8"><title>GOConnect Controller Admin</title></head><body>
+		// Show token value inline with a copy button; only loopback can access this page.
+		// Security: page is loopback-only (and optionally Basic Auth) enforced in ServeHTTP.
+		tok := h.token
+		if strings.TrimSpace(tok) == "" {
+			tok = ""
+		}
+		fmt.Fprintf(w, `<!doctype html><html><head><meta charset="utf-8"><title>GOConnect Controller Admin</title>
+		<style>body{font-family:Segoe UI,Arial,sans-serif;background:#0e1116;color:#e6e6e6;padding:20px} .row{display:flex;gap:8px;align-items:center;margin:8px 0} input{background:#0b0d12;border:1px solid #1f2430;color:#e6e6e6;border-radius:6px;padding:8px;min-width:360px} button{background:#263043;border:1px solid #33425b;color:#e6e6e6;border-radius:6px;padding:8px 12px;cursor:pointer}</style>
+		<script>async function copy(){const el=document.getElementById('token'); el.select(); el.setSelectionRange(0,99999); try{await navigator.clipboard.writeText(el.value);}catch(e){document.execCommand('copy');} const info=document.getElementById('copied'); if(info){info.textContent='Copied'; setTimeout(()=>info.textContent='',1500);} }</script>
+		</head><body>
 		<h2>Controller Token</h2>
 		<p>Status: %s</p>
+		<div class="row"><input id="token" type="text" value="%s" placeholder="(empty)"><button type="button" onclick="copy()">Copy</button><span id="copied" style="font-size:12px;color:#9aa4b5"></span></div>
 		<form method="post" action="/admin/token/regenerate"><button type="submit">Regenerate</button></form>
 		<form method="post" action="/admin/token/clear" onsubmit="return confirm('Clear token? Agents will be blocked until updated.');"><button type="submit">Clear</button></form>
-		</body></html>`, masked)
+		</body></html>`, status, tok)
 		return
 	case r.Method == http.MethodGet && r.URL.Path == "/admin/token/status":
 		w.Header().Set("Content-Type", "application/json")
