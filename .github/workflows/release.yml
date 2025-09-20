@@ -1,5 +1,4 @@
 name: release
-
 on:
   push:
     tags:
@@ -17,7 +16,6 @@ jobs:
       cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -37,27 +35,36 @@ jobs:
           if ($ver.StartsWith("v")) { $ver = $ver.Substring(1) }
           powershell -NoProfile -ExecutionPolicy Bypass -File build\scripts\prepare-release.ps1 -Version $ver
 
+      - name: Compose bilingual release notes (TR/EN)
+        id: notes
+        shell: pwsh
+        run: |
+          $ver = "${{ github.ref_name }}"
+          $lines = @()
+          $lines += "# GOConnect $ver — Windows Agent & Controller | Windows Aracı ve Denetleyici"
+          $lines += ""
+          $lines += "**EN (English)**"
+          $lines += "- Prebuilt Windows binaries (Agent/Controller)"
+          $lines += "- ZIP packages with install/uninstall scripts"
+          $lines += "- Diagnostics (STUN/MTU) & self-updater"
+          $lines += "- Structured JSON logging & optional /metrics"
+          $lines += "- SQLite store (default), API auth + rate limit + validation"
+          $lines += ""
+          $lines += "**TR (Türkçe)**"
+          $lines += "- Hazır Windows ikilileri (Agent/Controller)"
+          $lines += "- Kurulum/kaldırma scriptleriyle ZIP paketleri"
+          $lines += "- Tanılama (STUN/MTU) ve kendini güncelleme (updater)"
+          $lines += "- JSON biçimli loglama ve isteğe bağlı /metrics"
+          $lines += "- Varsayılan SQLite depolama, API yetkilendirme + kota + doğrulama"
+          $lines | Out-File RELEASE_BODY.md -Encoding UTF8
+          "body_path=RELEASE_BODY.md" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: GOConnect ${{ github.ref_name }} — Windows Agent & Controller | Windows Aracı ve Denetleyici
-          body: |
-            # GOConnect ${{ github.ref_name }} — Windows Agent & Controller | Windows Aracı ve Denetleyici
-
-            EN (English)
-            - Prebuilt Windows binaries (Agent/Controller)
-            - ZIP packages with install/uninstall scripts
-            - Diagnostics (STUN/MTU) & self-updater
-            - Structured JSON logging & optional /metrics
-            - SQLite store (default), API auth + rate limit + validation
-
-            TR (Türkçe)
-            - Hazır Windows ikilileri (Agent/Controller)
-            - Kurulum/kaldırma scriptleriyle ZIP paketleri
-            - Tanılama (STUN/MTU) ve kendini güncelleme (updater)
-            - JSON biçimli loglama ve isteğe bağlı /metrics
-            - Varsayılan SQLite depolama, API yetkilendirme + kota + doğrulama
+          body_path: ${{ steps.notes.outputs.body_path }}
           draft: false
           prerelease: true
           files: |
